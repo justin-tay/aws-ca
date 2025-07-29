@@ -1,10 +1,10 @@
 /* eslint-disable no-console */
 /* eslint-disable import/no-extraneous-dependencies */
 const esbuild = require('esbuild');
-const glob = require('glob');
+const { globSync } = require('tinyglobby');
 const path = require('path');
 
-const entryArray = glob.sync('./src/assets/lambda/**/handler.ts');
+const entryArray = globSync('./src/assets/lambda/**/handler.ts');
 
 entryArray.forEach((entryPoint) => {
   const name = path.dirname(
