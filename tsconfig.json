@@ -6,6 +6,9 @@
     ],
     "module": "ES2020",
     "moduleResolution": "node",
+    "types": [
+      "vitest/globals"
+    ],    
     "target": "ES2020",
     "outDir": "dist",
     "removeComments": true,
