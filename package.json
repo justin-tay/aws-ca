@@ -1,6 +1,7 @@
 {
   "name": "aws-ca",
   "version": "0.1.0",
+  "author": "Justin Tay",
   "bin": {
     "aws-ca": "bin/aws-ca.js"
   },
