@@ -2,7 +2,7 @@ import {
   APIGatewayProxyEvent,
   APIGatewayProxyResult,
   Handler,
-} from "aws-lambda";
+} from 'aws-lambda';
 
 const baseHandler: Handler<
   APIGatewayProxyEvent,

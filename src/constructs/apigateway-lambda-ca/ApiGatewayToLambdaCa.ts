@@ -1,13 +1,13 @@
-import { Duration } from "aws-cdk-lib";
+import { Duration } from 'aws-cdk-lib';
 import {
   Code,
   Function as LambdaFunction,
   Runtime,
-} from "aws-cdk-lib/aws-lambda";
-import { ApiGatewayToLambda } from "@aws-solutions-constructs/aws-apigateway-lambda";
-import { Construct } from "constructs";
-import { join } from "path";
-import { ApiGatewayToLambdaCaProps } from "./ApiGatewayToLambdaCaProps";
+} from 'aws-cdk-lib/aws-lambda';
+import { ApiGatewayToLambda } from '@aws-solutions-constructs/aws-apigateway-lambda';
+import { Construct } from 'constructs';
+import { join } from 'path';
+import { ApiGatewayToLambdaCaProps } from './ApiGatewayToLambdaCaProps';
 
 const DEFAULT_MEMORY_SIZE = 1024;
 const DEFAULT_TIMEOUT = Duration.seconds(6);
@@ -20,25 +20,25 @@ export default class ApiGatewayToLambdaCa extends Construct {
   constructor(
     scope: Construct,
     id: string,
-    props: ApiGatewayToLambdaCaProps = {}
+    props: ApiGatewayToLambdaCaProps = {},
   ) {
     super(scope, id);
     const environment: { [key: string]: string } = {};
-    this.lambdaFunction = new LambdaFunction(this, "AwsCaLambda", {
+    this.lambdaFunction = new LambdaFunction(this, 'AwsCaLambda', {
       ...props.lambdaFunctionProps,
       memorySize: props.lambdaFunctionProps?.memorySize ?? DEFAULT_MEMORY_SIZE,
       timeout: props.lambdaFunctionProps?.timeout ?? DEFAULT_TIMEOUT,
       runtime: Runtime.NODEJS_18_X,
-      handler: "handler.default",
+      handler: 'handler.default',
       code: Code.fromAsset(
-        join(__dirname, "../../../dist/assets/lambda/aws-ca")
+        join(__dirname, '../../../dist/assets/lambda/aws-ca'),
       ),
       environment,
     });
 
     this.apiGatewayToLambda = new ApiGatewayToLambda(
       this,
-      "ApiGatewayToLambda",
+      'ApiGatewayToLambda',
       {
         ...props.apiGatewayToLambdaProps,
         existingLambdaObj: this.lambdaFunction,
@@ -47,7 +47,7 @@ export default class ApiGatewayToLambdaCa extends Construct {
           proxy: true,
           ...props.apiGatewayToLambdaProps?.apiGatewayProps,
         },
-      }
+      },
     );
   }
 }

@@ -13,7 +13,9 @@
     "cdk": "cdk",
     "package": "npm run build:lambda && cdk synth",
     "deploy": "npm run build:lambda && cdk deploy",
-    "destroy": "cdk destroy"
+    "destroy": "cdk destroy",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --ext .ts --fix"
   },
   "devDependencies": {
     "@types/node": "22.16.5",
@@ -27,6 +29,25 @@
     "@types/aws-lambda": "^8.10.152",
     "aws-cdk-lib": "2.207.0",
     "constructs": "^10.4.2",
+    "eslint": "^9.32.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-prettier": "^5.5.3",
+    "typescript-eslint": "^8.38.0",
     "vitest": "^3.2.4"
+  },
+  "prettier": {
+    "printWidth": 80,
+    "semi": true,
+    "singleQuote": true,
+    "quoteProps": "as-needed",
+    "trailingComma": "all",
+    "bracketSpacing": true,
+    "bracketSameLine": false,
+    "arrowParens": "always",
+    "requirePragma": false,
+    "insertPragma": false,
+    "proseWrap": "preserve",
+    "htmlWhitespaceSensitivity": "css",
+    "vueIndentScriptAndStyle": false
   }
 }
