@@ -9,6 +9,6 @@ export default tseslint.config(
   eslintPluginPrettierRecommended,
   tseslint.configs.recommended,
   {
-    ignores: ['node_modules', 'dist'],
+    ignores: ['node_modules', 'dist', 'esbuild.config.mjs'],
   },
 );

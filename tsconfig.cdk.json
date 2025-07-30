@@ -2,7 +2,8 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "declaration": true,
-    "module": "es2020",
+    "module": "commonjs",
+    "moduleDetection": "auto",
   },
   "rootDir": "/src",
   "include": ["src/**/*.ts"],

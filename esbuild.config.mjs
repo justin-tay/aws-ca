@@ -1,14 +1,13 @@
-/* eslint-disable no-console */
-/* eslint-disable import/no-extraneous-dependencies */
-const esbuild = require('esbuild');
-const { globSync } = require('tinyglobby');
-const path = require('path');
+import esbuild from 'esbuild';
+import { globSync } from 'tinyglobby';
+import path from 'path';
 
 const entryArray = globSync('./src/assets/lambda/**/handler.ts');
 
 entryArray.forEach((entryPoint) => {
+  console.log(entryPoint);
   const name = path.dirname(
-    entryPoint.replace('./src/assets/lambda/handlers/', ''),
+    entryPoint.replace('src/assets/lambda/handlers/', ''),
   );
   const outfile = `dist/assets/lambda/${name}/handler.js`;
 
@@ -21,6 +20,6 @@ entryArray.forEach((entryPoint) => {
     outfile,
     platform: 'node',
     sourcemap: true,
-    target: 'node18',
+    target: 'node22',
   });
 });

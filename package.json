@@ -6,7 +6,7 @@
     "aws-ca": "bin/aws-ca.js"
   },
   "scripts": {
-    "build:lambda": "node esbuild.config.js",
+    "build:lambda": "node esbuild.config.mjs",
     "build:cdk": "tsc -p tsconfig.cdk.json",
     "build": "npm run build:lambda && npm run build:cdk",
     "watch": "tsc -w",
