@@ -8,6 +8,9 @@ import { ApiGatewayToLambda } from '@aws-solutions-constructs/aws-apigateway-lam
 import { Construct } from 'constructs';
 import { join } from 'path';
 import { ApiGatewayToLambdaCaProps } from './ApiGatewayToLambdaCaProps';
+import { AttributeType, Billing, TableV2 } from 'aws-cdk-lib/aws-dynamodb';
+import { Effect, PolicyStatement } from 'aws-cdk-lib/aws-iam';
+import { StringParameter } from 'aws-cdk-lib/aws-ssm';
 
 const DEFAULT_MEMORY_SIZE = 1024;
 const DEFAULT_TIMEOUT = Duration.seconds(6);
@@ -16,6 +19,14 @@ export default class ApiGatewayToLambdaCa extends Construct {
   public readonly apiGatewayToLambda: ApiGatewayToLambda;
 
   public readonly lambdaFunction: LambdaFunction;
+
+  public readonly caTable: TableV2;
+
+  public readonly caIndexTable: TableV2;
+
+  public readonly rootCaKeyParameter: StringParameter;
+
+  public readonly subCaKeyParameter: StringParameter;
 
   constructor(
     scope: Construct,
@@ -48,6 +59,64 @@ export default class ApiGatewayToLambdaCa extends Construct {
           ...props.apiGatewayToLambdaProps?.apiGatewayProps,
         },
       },
+    );
+
+    this.caTable = new TableV2(this, 'CertificateAuthority', {
+      tableName: 'CertificateAuthority',
+      partitionKey: { name: 'SubjectName', type: AttributeType.STRING },
+      sortKey: { name: 'SerialNumber', type: AttributeType.STRING },
+      billing: Billing.onDemand(),
+    });
+
+    this.caIndexTable = new TableV2(this, 'CertificateAuthorityIndex', {
+      tableName: 'CertificateAuthorityIndex',
+      partitionKey: { name: 'IssuerName', type: AttributeType.STRING },
+      sortKey: { name: 'SerialNumber', type: AttributeType.STRING },
+      billing: Billing.onDemand(),
+    });
+
+    this.apiGatewayToLambda.lambdaFunction.addToRolePolicy(
+      new PolicyStatement({
+        effect: Effect.ALLOW,
+        resources: [this.caIndexTable.tableArn, this.caTable.tableArn],
+        actions: [
+          'dynamodb:BatchGetItem',
+          'dynamodb:BatchWriteItem',
+          'dynamodb:ConditionCheckItem',
+          'dynamodb:PutItem',
+          'dynamodb:DescribeTable',
+          'dynamodb:DeleteItem',
+          'dynamodb:GetItem',
+          'dynamodb:Scan',
+          'dynamodb:Query',
+          'dynamodb:UpdateItem',
+        ],
+      }),
+    );
+
+    this.rootCaKeyParameter = new StringParameter(this, 'RootCaKeyParameter', {
+      parameterName: '/prod/aws-ca/root-ca/key',
+      stringValue: 'initial', // does not allow empty string
+    });
+
+    this.subCaKeyParameter = new StringParameter(this, 'SubCaKeyParameter', {
+      parameterName: '/prod/aws-ca/sub-ca/key',
+      stringValue: 'initial', // does not allow empty string
+    });
+
+    this.apiGatewayToLambda.lambdaFunction.addToRolePolicy(
+      new PolicyStatement({
+        effect: Effect.ALLOW,
+        resources: [
+          this.rootCaKeyParameter.parameterArn,
+          this.subCaKeyParameter.parameterArn,
+        ],
+        actions: [
+          'ssm:GetParameter',
+          'ssm:PutParameter',
+          'ssm:DeleteParameter',
+        ],
+      }),
     );
   }
 }
