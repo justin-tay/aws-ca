@@ -12,30 +12,30 @@ const baseHandler: Handler<
   APIGatewayProxyEvent,
   APIGatewayProxyResult
 > = async (event) => {
-  if (
-    event.pathParameters?.proxy === 'simpleenroll' ||
-    event.pathParameters?.proxy === '.well-known/est/simpleenroll'
-  ) {
-    try {
-      console.log('Handle Simple Enroll');
+  try {
+    if (
+      event.pathParameters?.proxy === 'simpleenroll' ||
+      event.pathParameters?.proxy === '.well-known/est/simpleenroll'
+    ) {
       return await handleSimpleEnroll(event);
-    } catch (err) {
-      console.log('Error');
-      if (err instanceof Error) {
-        console.log(err.message);
-      }
-      console.log(JSON.stringify(err));
-      return {
-        statusCode: 500,
-        body: JSON.stringify(err),
-      };
     }
+    const body = JSON.stringify(event);
+    return {
+      statusCode: 200,
+      body,
+    };
+  } catch (err) {
+    let body;
+    if (err instanceof Error) {
+      body = `${err.name}: ${err.message}: ${err.stack}`;
+    } else {
+      body = 'Internal Server Error';
+    }
+    return {
+      statusCode: 500,
+      body,
+    };
   }
-  const body = JSON.stringify(event);
-  return {
-    statusCode: 200,
-    body,
-  };
 };
 
 export default baseHandler;
