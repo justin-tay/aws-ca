@@ -29,9 +29,7 @@ export async function initializeCertificateAuthority() {
       key: rootCaCrlKey,
     });
   }
-  console.log('Creating CA Hierarchy');
-  console.log(`Root CA: ${rootCaName}`);
-  console.log(`Sub CA: ${subCaName}`);
+
   const caHierarchy = await createCaHierarchy({
     rootCa: { name: rootCaName, validity: 20 },
     subCa: {
@@ -41,7 +39,6 @@ export async function initializeCertificateAuthority() {
     },
   });
   try {
-    console.log('Saving CA');
     if (keyStore === KeyStore.SecretsManager) {
       await saveCa({
         certificate: caHierarchy.rootCa.certificate,
@@ -57,7 +54,6 @@ export async function initializeCertificateAuthority() {
         crlKey: rootCaCrlKey,
       });
     }
-    console.log('Saving CA Index');
     await saveCaIndex({
       ca: { certificate: caHierarchy.rootCa.certificate },
       issued: { certificate: caHierarchy.rootCa.certificate },

@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { X509Certificate } from '@peculiar/x509';
 import {
   AuthenticatedSafe,
@@ -21,7 +22,7 @@ export async function createPkcs12Keystore(params: {
   const { certificate, certificateChain, password } = params;
   if (certificate) {
     if (certificate.privateKey) {
-      const privateKeyBinary = await globalThis.crypto.subtle.exportKey(
+      const privateKeyBinary = await crypto.subtle.exportKey(
         'pkcs8',
         certificate.privateKey,
       );

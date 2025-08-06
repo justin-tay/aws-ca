@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { PemConverter } from '@peculiar/x509';
 import { fromBER } from 'asn1js';
 import { PKCS8ShroudedKeyBag } from 'pkijs';

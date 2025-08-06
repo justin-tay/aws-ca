@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { CryptoEngine, setEngine } from 'pkijs';
 
 export function initializeCryptoEngine() {

@@ -1,4 +1,5 @@
 import { JsonName, Name, X509Certificate } from '@peculiar/x509';
+import crypto from 'crypto';
 import { createCa } from './createCa';
 import { createCsr } from './createCsr';
 import { signCertificate } from './signCertificate';

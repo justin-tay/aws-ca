@@ -9,6 +9,8 @@ import {
   X509CertificateGenerator,
 } from '@peculiar/x509';
 
+import crypto from 'crypto';
+
 export interface CreateCaParams {
   name: X509CertificateCreateParamsName;
   keys: CryptoKeyPair;

@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { Pkcs10CertificateRequest } from '@peculiar/x509';
 import { createCa } from './createCa';
 import { signCertificate } from './signCertificate';

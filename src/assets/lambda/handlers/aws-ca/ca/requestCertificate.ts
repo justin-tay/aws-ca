@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { createCsr } from './createCsr';
 import { signCertificate } from './signCertificate';
 import { loadSubCa } from './loadSubCa';

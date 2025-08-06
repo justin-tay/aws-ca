@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { PemConverter } from '@peculiar/x509';
 import { fromBER } from 'asn1js';
 import { ICryptoEngine, PKCS8ShroudedKeyBag, PrivateKeyInfo } from 'pkijs';
@@ -6,12 +7,9 @@ import { stringToArrayBuffer } from 'pvutils';
 export async function exportPkcs8PemPrivateKey(
   key: CryptoKey,
   password: string,
-  crypto?: ICryptoEngine,
+  cryptoEngine?: ICryptoEngine,
 ) {
-  const privateKeyBinary = await globalThis.crypto.subtle.exportKey(
-    'pkcs8',
-    key,
-  );
+  const privateKeyBinary = await crypto.subtle.exportKey('pkcs8', key);
   const privateKeyInfo = new PrivateKeyInfo({
     schema: fromBER(privateKeyBinary).result,
   });
@@ -23,12 +21,12 @@ export async function exportPkcs8PemPrivateKey(
       iterationCount: 100000,
       hmacHashAlgorithm: 'SHA-256',
       contentEncryptionAlgorithm: {
-        iv: globalThis.crypto.getRandomValues(new Uint8Array(8)),
+        iv: crypto.getRandomValues(new Uint8Array(8)),
         name: 'AES-CBC', // OpenSSL can handle AES-CBC only
         length: 256,
       },
     },
-    crypto,
+    cryptoEngine,
   );
   const encKeyBinary = pkcs8.toSchema().toBER(false);
   return PemConverter.encode(encKeyBinary, 'ENCRYPTED PRIVATE KEY');
