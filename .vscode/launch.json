@@ -1,0 +1,34 @@
+{
+  // Use IntelliSense to learn about possible attributes.
+  // Hover to view descriptions of existing attributes.
+  // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "Run Unit Tests For Current File",
+      "program": "${workspaceRoot}/node_modules/vitest/vitest.mjs",
+      "args": ["--no-watch", "--testNamePattern=/${fileBasename}"],
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen"
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "Run Unit Tests",
+      "program": "${workspaceRoot}/node_modules/vitest/vitest.mjs",
+      "args": ["--no-watch"],
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen"
+    },
+    {
+      "name": "Run Build",
+      "request": "launch",
+      "runtimeArgs": ["run-script", "build"],
+      "runtimeExecutable": "npm",
+      "skipFiles": ["<node_internals>/**"],
+      "type": "node"
+    }
+  ]
+}
