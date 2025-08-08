@@ -1,4 +1,4 @@
-import { Duration } from 'aws-cdk-lib';
+import { Duration, RemovalPolicy } from 'aws-cdk-lib';
 import {
   Code,
   Function as LambdaFunction,
@@ -66,6 +66,7 @@ export default class ApiGatewayToLambdaCa extends Construct {
       partitionKey: { name: 'SubjectName', type: AttributeType.STRING },
       sortKey: { name: 'SerialNumber', type: AttributeType.STRING },
       billing: Billing.onDemand(),
+      removalPolicy: RemovalPolicy.DESTROY,
     });
 
     this.caIndexTable = new TableV2(this, 'CertificateAuthorityIndex', {
@@ -73,6 +74,7 @@ export default class ApiGatewayToLambdaCa extends Construct {
       partitionKey: { name: 'IssuerName', type: AttributeType.STRING },
       sortKey: { name: 'SerialNumber', type: AttributeType.STRING },
       billing: Billing.onDemand(),
+      removalPolicy: RemovalPolicy.DESTROY,
     });
 
     this.apiGatewayToLambda.lambdaFunction.addToRolePolicy(
