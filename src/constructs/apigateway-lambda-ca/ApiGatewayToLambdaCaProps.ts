@@ -1,8 +1,11 @@
 import { ApiGatewayToLambdaProps } from '@aws-solutions-constructs/aws-apigateway-lambda';
 import { LambdaRestApiProps } from 'aws-cdk-lib/aws-apigateway';
 import { FunctionProps } from 'aws-cdk-lib/aws-lambda';
+import { CaLambdaProps } from './CaLambdaProps';
 
 export interface ApiGatewayToLambdaCaProps {
+  readonly caLambdaProps?: CaLambdaProps;
+
   /**
    * Optional user-provided props to override the function props.
    */

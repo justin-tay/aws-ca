@@ -96,7 +96,7 @@ export function getConfig() {
       subCaCrlKey: nonEmpty(process.env.SUB_CA_CRL_KEY) ?? 'sub-ca.crl',
       keyStore:
         (nonEmpty(process.env.KEYSTORE) as KeyStore) ?? KeyStore.ParameterStore,
-      //keyStore: KeyStore.SecretsMamager
+      //keyStore: KeyStore.SecretsManager
       keyAlgorithm,
       region: nonEmpty(process.env.AWS_REGION) ?? 'ap-southeast-1',
       pepper,
