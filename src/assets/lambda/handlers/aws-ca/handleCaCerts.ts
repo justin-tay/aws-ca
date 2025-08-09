@@ -2,6 +2,7 @@ import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
 import { loadCertificateChain } from './ca/loadCertificateChain';
 import { exportPkcs7CertificateChain } from './ca/exportPkcs7CertificateChain';
 import { getConfig } from './ca/getConfig';
+import { authorize } from './authorize';
 
 export async function handleCaCerts(
   event: APIGatewayProxyEvent,
@@ -15,11 +16,19 @@ export async function handleCaCerts(
   }
 
   // check authorization
-  const authorization = headers['Authorization'];
+  const authorization = headers['Authorization'] ?? headers['authorization'];
   if (!authorization) {
     return {
       statusCode: 401,
       body: 'Unauthorized',
+    };
+  }
+  try {
+    await authorize(authorization);
+  } catch (err) {
+    return {
+      statusCode: 401,
+      body: JSON.stringify(err),
     };
   }
 

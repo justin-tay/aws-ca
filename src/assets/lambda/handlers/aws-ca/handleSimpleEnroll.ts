@@ -3,6 +3,7 @@ import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
 import { issueCertificate } from './ca/issueCertificate';
 import { loadCertificateChain } from './ca/loadCertificateChain';
 import { exportPkcs7CertificateChain } from './ca/exportPkcs7CertificateChain';
+import { authorize } from './authorize';
 
 export async function handleSimpleEnroll(
   event: APIGatewayProxyEvent,
@@ -33,11 +34,20 @@ export async function handleSimpleEnroll(
   }
 
   // check authorization
-  const authorization = headers['Authorization'];
+  const authorization = headers['Authorization'] ?? headers['authorization'];
   if (!authorization) {
     return {
       statusCode: 401,
       body: 'Unauthorized',
+    };
+  }
+
+  try {
+    await authorize(authorization);
+  } catch (err) {
+    return {
+      statusCode: 401,
+      body: JSON.stringify(err),
     };
   }
 
