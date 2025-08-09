@@ -13,6 +13,18 @@ import { Effect, PolicyStatement } from 'aws-cdk-lib/aws-iam';
 import { StringParameter } from 'aws-cdk-lib/aws-ssm';
 import { Secret } from 'aws-cdk-lib/aws-secretsmanager';
 import KeyStore from './KeyStore';
+import {
+  AccountRecovery,
+  BooleanAttribute,
+  ClientAttributes,
+  DateTimeAttribute,
+  NumberAttribute,
+  OAuthScope,
+  StringAttribute,
+  UserPool,
+  UserPoolClient,
+  VerificationEmailStyle,
+} from 'aws-cdk-lib/aws-cognito';
 
 const DEFAULT_MEMORY_SIZE = 1024;
 const DEFAULT_TIMEOUT = Duration.seconds(6);
@@ -34,13 +46,88 @@ export default class ApiGatewayToLambdaCa extends Construct {
 
   public readonly subCaKeySecret?: Secret;
 
+  public readonly caUserPool: UserPool;
+
+  public readonly caUserPoolClient: UserPoolClient;
+
   constructor(
     scope: Construct,
     id: string,
     props: ApiGatewayToLambdaCaProps = {},
   ) {
     super(scope, id);
+    this.caUserPool = new UserPool(this, 'CaUserPool', {
+      userPoolName: 'CaUserPool',
+      signInAliases: {
+        email: true,
+      },
+      selfSignUpEnabled: true,
+      autoVerify: {
+        email: true,
+      },
+      userVerification: {
+        emailSubject: 'You need to verify your email',
+        emailBody: 'Thanks for signing up. Your verification code is {####}', // # This placeholder is a must if code is selected as preferred verification method
+        emailStyle: VerificationEmailStyle.CODE,
+      },
+      standardAttributes: {
+        familyName: {
+          mutable: false,
+          required: true,
+        },
+        address: {
+          mutable: true,
+          required: false,
+        },
+      },
+      customAttributes: {
+        tenantId: new StringAttribute({
+          mutable: false,
+          minLen: 10,
+          maxLen: 15,
+        }),
+        createdAt: new DateTimeAttribute(),
+        employeeId: new NumberAttribute({
+          mutable: false,
+          min: 1,
+          max: 100,
+        }),
+        isAdmin: new BooleanAttribute({
+          mutable: false,
+        }),
+      },
+      passwordPolicy: {
+        minLength: 8,
+        requireLowercase: true,
+        requireUppercase: true,
+        requireDigits: true,
+        requireSymbols: true,
+      },
+      accountRecovery: AccountRecovery.EMAIL_ONLY,
+      removalPolicy: RemovalPolicy.DESTROY,
+    });
+
+    this.caUserPoolClient = this.caUserPool.addClient('CaUserPoolClient', {
+      userPoolClientName: 'CaUserPoolClient',
+      // Define attribute permissions (read/write) for standard and custom attributes
+      readAttributes: new ClientAttributes().withStandardAttributes({
+        email: true,
+        givenName: true,
+      }),
+      writeAttributes: new ClientAttributes().withStandardAttributes({
+        email: true,
+        givenName: true,
+      }),
+      authFlows: {
+        userSrp: true, // Enable Secure Remote Password (SRP) authentication
+        adminUserPassword: true, // Enable Admin-based user password authentication
+      },
+    });
+
     const environment: { [key: string]: string } = getEnvironment(props);
+
+    environment.USER_POOL_CLIENT_ID = this.caUserPoolClient.userPoolClientId;
+
     this.lambdaFunction = new LambdaFunction(this, 'CaLambda', {
       ...props.lambdaFunctionProps,
       memorySize: props.lambdaFunctionProps?.memorySize ?? DEFAULT_MEMORY_SIZE,
@@ -112,6 +199,26 @@ export default class ApiGatewayToLambdaCa extends Construct {
         secretName:
           props.caLambdaProps.subCaKeySecretId ?? 'prod/aws-ca/sub-ca/key',
       });
+      this.apiGatewayToLambda.lambdaFunction.addToRolePolicy(
+        new PolicyStatement({
+          effect: Effect.ALLOW,
+          resources: [
+            this.rootCaKeySecret.secretArn,
+            this.subCaKeySecret.secretArn,
+          ],
+          actions: [
+            'secretsmanager:GetSecretValue',
+            'secretsmanager:DescribeSecret',
+            'secretsmanager:RestoreSecret',
+            'secretsmanager:PutSecretValue',
+            'secretsmanager:UpdateSecretVersionStage',
+            'secretsmanager:DeleteSecret',
+            'secretsmanager:RotateSecret',
+            'secretsmanager:CancelRotateSecret',
+            'secretsmanager:UpdateSecret',
+          ],
+        }),
+      );
     } else {
       this.rootCaKeyParameter = new StringParameter(
         this,
