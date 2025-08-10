@@ -106,6 +106,7 @@ export default class ApiGatewayToLambdaCa extends Construct {
       authFlows: {
         userSrp: true, // Enable Secure Remote Password (SRP) authentication
         adminUserPassword: true, // Enable Admin-based user password authentication
+        userPassword: true,
       },
     });
 
@@ -137,6 +138,14 @@ export default class ApiGatewayToLambdaCa extends Construct {
           ...props.apiGatewayToLambdaProps?.apiGatewayProps,
         },
       },
+    );
+
+    this.apiGatewayToLambda.lambdaFunction.addToRolePolicy(
+      new PolicyStatement({
+        effect: Effect.ALLOW,
+        resources: [this.caUserPool.userPoolArn],
+        actions: ['cognito-idp:InitiateAuth'],
+      }),
     );
 
     this.caTable = new TableV2(this, 'CertificateAuthority', {

@@ -7,7 +7,7 @@ if ($env:ENDPOINT) {
 if ($env:USER_NAME) {
     $Username = $env:USER_NAME
 } else {
-    $Username = "username"
+    $Username = "user@test"
 }
 if ($env:PASSWORD) {
     $Password = $env:PASSWORD

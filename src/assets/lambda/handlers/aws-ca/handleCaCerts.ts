@@ -16,20 +16,28 @@ export async function handleCaCerts(
   }
 
   // check authorization
-  const authorization = headers['Authorization'] ?? headers['authorization'];
-  if (!authorization) {
+  const authorizationHeader =
+    headers['Authorization'] ?? headers['authorization'];
+  if (!authorizationHeader) {
     return {
       statusCode: 401,
       body: 'Unauthorized',
     };
   }
   try {
-    await authorize(authorization);
+    await authorize({ authorizationHeader });
   } catch (err) {
-    return {
-      statusCode: 401,
-      body: JSON.stringify(err),
-    };
+    if (err instanceof Error) {
+      return {
+        statusCode: 401,
+        body: err.message,
+      };
+    } else {
+      return {
+        statusCode: 401,
+        body: JSON.stringify(err),
+      };
+    }
   }
 
   const certificateChain = await loadCertificateChain({

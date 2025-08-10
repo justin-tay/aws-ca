@@ -7,10 +7,11 @@ import { getCognitoIdentityProviderClient } from './getCognitoIdentityProviderCl
 export async function authenticateUser(params: {
   username: string;
   password: string;
+  clientId?: string;
 }) {
-  const clientId = process.env.USER_POOL_CLIENT_ID;
+  const { username, password, clientId: userPoolClientId } = params;
+  const clientId = userPoolClientId ?? process.env.USER_POOL_CLIENT_ID;
   const client = getCognitoIdentityProviderClient();
-  const { username, password } = params;
   const command = new InitiateAuthCommand({
     AuthFlow: AuthFlowType.USER_PASSWORD_AUTH,
     ClientId: clientId,
