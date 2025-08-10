@@ -19,7 +19,6 @@ import {
   ClientAttributes,
   DateTimeAttribute,
   NumberAttribute,
-  OAuthScope,
   StringAttribute,
   UserPool,
   UserPoolClient,
@@ -59,6 +58,7 @@ export default class ApiGatewayToLambdaCa extends Construct {
     this.caUserPool = new UserPool(this, 'CaUserPool', {
       userPoolName: 'CaUserPool',
       signInAliases: {
+        username: true,
         email: true,
       },
       selfSignUpEnabled: true,
@@ -70,16 +70,7 @@ export default class ApiGatewayToLambdaCa extends Construct {
         emailBody: 'Thanks for signing up. Your verification code is {####}', // # This placeholder is a must if code is selected as preferred verification method
         emailStyle: VerificationEmailStyle.CODE,
       },
-      standardAttributes: {
-        familyName: {
-          mutable: false,
-          required: true,
-        },
-        address: {
-          mutable: true,
-          required: false,
-        },
-      },
+      standardAttributes: {},
       customAttributes: {
         tenantId: new StringAttribute({
           mutable: false,
@@ -110,14 +101,8 @@ export default class ApiGatewayToLambdaCa extends Construct {
     this.caUserPoolClient = this.caUserPool.addClient('CaUserPoolClient', {
       userPoolClientName: 'CaUserPoolClient',
       // Define attribute permissions (read/write) for standard and custom attributes
-      readAttributes: new ClientAttributes().withStandardAttributes({
-        email: true,
-        givenName: true,
-      }),
-      writeAttributes: new ClientAttributes().withStandardAttributes({
-        email: true,
-        givenName: true,
-      }),
+      readAttributes: new ClientAttributes().withStandardAttributes({}),
+      writeAttributes: new ClientAttributes().withStandardAttributes({}),
       authFlows: {
         userSrp: true, // Enable Secure Remote Password (SRP) authentication
         adminUserPassword: true, // Enable Admin-based user password authentication
