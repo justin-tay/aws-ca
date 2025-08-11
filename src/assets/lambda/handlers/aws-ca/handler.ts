@@ -20,6 +20,11 @@ const baseHandler: Handler<
     ) {
       return await handleSimpleEnroll(event);
     } else if (
+      event.pathParameters?.proxy === 'simplereenroll' ||
+      event.pathParameters?.proxy === '.well-known/est/simplereenroll'
+    ) {
+      return await handleSimpleEnroll(event);
+    } else if (
       event.pathParameters?.proxy === 'cacerts' ||
       event.pathParameters?.proxy === '.well-known/est/cacerts'
     ) {
