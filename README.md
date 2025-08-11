@@ -150,9 +150,25 @@ A certificate issued by the certification authority cannot be installed. Contact
 A certificate chain could not be built to a trusted root authority. 0x800b010a (-2146762486 CERT_E_CHAINING)
 ```
 
+### OpenSSL
+
+```shell
+openssl genrsa -aes256 -out clientkey.pem 2048
+openssl req -new -key clientkey.pem -out client.csr -config csr.cnf
+```
+
 ## Certificate Enrollment
+
+### Windows
 
 ```shell
 $Endpoint = "https://xyz.execute-api.ap-southeast-1.amazonaws.com/dev/"
 curl.exe --location --request POST $Endpoint'.well-known/est/simpleenroll' --user $Username':'$Password --header 'Content-Type: application/pkcs10' --data-binary "@$CsrPath" --output $CertPath
+```
+
+### OpenSSL
+
+```shell
+export Endpoint="https://xyz.execute-api.ap-southeast-1.amazonaws.com/dev/"
+curl --location --request POST ${Endpoint}'.well-known/est/simpleenroll' --user ${Username}':'${Password} --header 'Content-Type: application/pkcs10' --data-binary "@$CsrPath" --output $CertPath
 ```
