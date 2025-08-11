@@ -173,3 +173,19 @@ curl.exe --location --request POST $Endpoint'.well-known/est/simpleenroll' --use
 export Endpoint="https://xyz.execute-api.ap-southeast-1.amazonaws.com/dev/"
 curl --location --request POST ${Endpoint}'.well-known/est/simpleenroll' --user ${Username}':'${Password} --header 'Content-Type: application/pkcs10' --data-binary "@$CsrPath" --output $CertPath
 ```
+
+## Certificate Revocation
+
+### Windows
+
+```shell
+$Endpoint = "https://xyz.execute-api.ap-southeast-1.amazonaws.com/dev/"
+curl.exe --location --request POST $Endpoint'revoke' --user $Username':'$Password --header 'Content-Type: application/x-www-form-urlencoded' --data "serialNumber=$SerialNumber"
+```
+
+### OpenSSL
+
+```shell
+export Endpoint="https://xyz.execute-api.ap-southeast-1.amazonaws.com/dev/"
+curl --location --request POST ${Endpoint}'revoke' --user ${Username}':'${Password} --header 'Content-Type: application/x-www-form-urlencoded' --data "serialNumber=${SerialNumber}"
+```
