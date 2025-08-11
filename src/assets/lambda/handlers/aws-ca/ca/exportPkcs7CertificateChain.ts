@@ -32,5 +32,5 @@ export async function exportPkcs7CertificateChain(params: {
   });
 
   const contentInfoBinary = contentInfo.toSchema().toBER(false);
-  return PemConverter.encode(contentInfoBinary, 'BEGIN PKCS7');
+  return PemConverter.encode(contentInfoBinary, 'PKCS7');
 }

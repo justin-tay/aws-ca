@@ -1,0 +1,17 @@
+[ req ]
+prompt                 = no
+days                   = 365
+distinguished_name     = req_distinguished_name
+req_extensions         = v3_req
+
+[ req_distinguished_name ]
+commonName             = ${ENV::DeviceUid}
+
+[ v3_req ]
+basicConstraints       = CA:false
+keyUsage               = digitalSignature
+extendedKeyUsage       = clientAuth
+subjectAltName         = @sans
+
+[ sans ]
+DNS.0 = UDID=${ENV::DeviceUid}

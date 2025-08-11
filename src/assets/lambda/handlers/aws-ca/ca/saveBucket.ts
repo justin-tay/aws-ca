@@ -23,7 +23,7 @@ export async function saveBucket(
       !(
         err.name === 'BucketAlreadyExists' ||
         err.name === 'BucketAlreadyOwnedByYou' ||
-        err.name === 'AccessDeniedException'
+        err.name === 'AccessDenied'
       )
     ) {
       throw err;
@@ -38,7 +38,7 @@ export async function saveBucket(
   try {
     await client.send(putPublicAccessBlockCommand);
   } catch (err) {
-    if (err instanceof Error && err.name !== 'AccessDeniedException') {
+    if (err instanceof Error && err.name !== 'AccessDenied') {
       throw err;
     }
   }
@@ -61,7 +61,7 @@ export async function saveBucket(
   try {
     await client.send(putBucketPolicyCommand);
   } catch (err) {
-    if (err instanceof Error && err.name !== 'AccessDeniedException') {
+    if (err instanceof Error && err.name !== 'AccessDenied') {
       throw err;
     }
   }
