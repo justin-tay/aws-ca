@@ -16,6 +16,12 @@ export class AwsCaStack extends cdk.Stack {
       : DEFAULT_ENVIRONMENT;
 
     this.apiGatewayToLambdaCa = new ApiGatewayToLambdaCa(this, 'Ca', {
+      caLambdaProps: {
+        rootCaCrlBucketName: 'certauthoritycrls',
+        rootCaCrlKey: 'root-ca.crl',
+        subCaCrlBucketName: 'certauthoritycrls',
+        subCaCrlKey: 'sub-ca.crl',
+      },
       apiGatewayToLambdaProps: {
         apiGatewayProps: {
           restApiName: 'AwsCaRestApi',

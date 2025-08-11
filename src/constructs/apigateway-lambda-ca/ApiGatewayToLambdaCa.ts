@@ -15,15 +15,12 @@ import { Secret } from 'aws-cdk-lib/aws-secretsmanager';
 import KeyStore from './KeyStore';
 import {
   AccountRecovery,
-  BooleanAttribute,
   ClientAttributes,
-  DateTimeAttribute,
-  NumberAttribute,
-  StringAttribute,
   UserPool,
   UserPoolClient,
   VerificationEmailStyle,
 } from 'aws-cdk-lib/aws-cognito';
+import { Bucket, BucketEncryption } from 'aws-cdk-lib/aws-s3';
 
 const DEFAULT_MEMORY_SIZE = 1024;
 const DEFAULT_TIMEOUT = Duration.seconds(6);
@@ -49,6 +46,10 @@ export default class ApiGatewayToLambdaCa extends Construct {
 
   public readonly caUserPoolClient: UserPoolClient;
 
+  public readonly rootCaCrlBucket?: Bucket;
+
+  public readonly subCaCrlBucket?: Bucket;
+
   constructor(
     scope: Construct,
     id: string,
@@ -61,7 +62,7 @@ export default class ApiGatewayToLambdaCa extends Construct {
         username: true,
         email: true,
       },
-      selfSignUpEnabled: true,
+      selfSignUpEnabled: false,
       autoVerify: {
         email: true,
       },
@@ -71,22 +72,7 @@ export default class ApiGatewayToLambdaCa extends Construct {
         emailStyle: VerificationEmailStyle.CODE,
       },
       standardAttributes: {},
-      customAttributes: {
-        tenantId: new StringAttribute({
-          mutable: false,
-          minLen: 10,
-          maxLen: 15,
-        }),
-        createdAt: new DateTimeAttribute(),
-        employeeId: new NumberAttribute({
-          mutable: false,
-          min: 1,
-          max: 100,
-        }),
-        isAdmin: new BooleanAttribute({
-          mutable: false,
-        }),
-      },
+      customAttributes: {},
       passwordPolicy: {
         minLength: 8,
         requireLowercase: true,
@@ -104,8 +90,6 @@ export default class ApiGatewayToLambdaCa extends Construct {
       readAttributes: new ClientAttributes().withStandardAttributes({}),
       writeAttributes: new ClientAttributes().withStandardAttributes({}),
       authFlows: {
-        userSrp: true, // Enable Secure Remote Password (SRP) authentication
-        adminUserPassword: true, // Enable Admin-based user password authentication
         userPassword: true,
       },
     });
@@ -245,6 +229,48 @@ export default class ApiGatewayToLambdaCa extends Construct {
             'ssm:DeleteParameter',
           ],
         }),
+      );
+    }
+    if (props.caLambdaProps?.rootCaCrlBucketName) {
+      this.rootCaCrlBucket = new Bucket(this, 'RootCaCrlBucket', {
+        bucketName: props.caLambdaProps.rootCaCrlBucketName,
+        publicReadAccess: true,
+        blockPublicAccess: {
+          blockPublicAcls: false,
+          ignorePublicAcls: false,
+          blockPublicPolicy: false,
+          restrictPublicBuckets: false,
+        },
+        encryption: BucketEncryption.S3_MANAGED,
+        removalPolicy: RemovalPolicy.DESTROY, // Deletes bucket contents on stack deletion
+        autoDeleteObjects: true, // Automatically deletes objects when removalPolicy is set to DESTROY
+      });
+      if (
+        props.caLambdaProps?.rootCaCrlBucketName ===
+        props.caLambdaProps?.subCaCrlBucketName
+      ) {
+        this.subCaCrlBucket = this.rootCaCrlBucket;
+      }
+      this.rootCaCrlBucket.grantReadWrite(
+        this.apiGatewayToLambda.lambdaFunction,
+      );
+    }
+    if (props.caLambdaProps?.subCaCrlBucketName && !this.subCaCrlBucket) {
+      this.subCaCrlBucket = new Bucket(this, 'SubCaCrlBucket', {
+        bucketName: props.caLambdaProps.subCaCrlBucketName,
+        publicReadAccess: true,
+        blockPublicAccess: {
+          blockPublicAcls: false,
+          ignorePublicAcls: false,
+          blockPublicPolicy: false,
+          restrictPublicBuckets: false,
+        },
+        encryption: BucketEncryption.S3_MANAGED,
+        removalPolicy: RemovalPolicy.DESTROY, // Deletes bucket contents on stack deletion
+        autoDeleteObjects: true, // Automatically deletes objects when removalPolicy is set to DESTROY
+      });
+      this.subCaCrlBucket.grantReadWrite(
+        this.apiGatewayToLambda.lambdaFunction,
       );
     }
   }
