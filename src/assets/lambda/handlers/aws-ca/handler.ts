@@ -6,6 +6,7 @@ import {
 import { handleSimpleEnroll } from './handleSimpleEnroll';
 import { initializeCryptoEngine } from './ca/initializeCryptoEngine';
 import { handleCaCerts } from './handleCaCerts';
+import { handleRevoke } from './handleRevoke';
 
 initializeCryptoEngine();
 
@@ -29,6 +30,8 @@ const baseHandler: Handler<
       event.pathParameters?.proxy === '.well-known/est/cacerts'
     ) {
       return await handleCaCerts(event);
+    } else if (event.pathParameters?.proxy === 'revoke') {
+      return await handleRevoke(event);
     }
     const body = JSON.stringify(event);
     return {

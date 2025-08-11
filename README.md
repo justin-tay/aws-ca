@@ -29,11 +29,12 @@ Endpoints are implemented using an API Gateway Lambda.
 https://xyz.execute-api.ap-southeast-1.amazonaws.com/dev/.well-known/est/simpleenroll
 ```
 
-| Operation                       | Operation Path    |
-| ------------------------------- | ----------------- |
-| Distribution of CA Certificates | `/cacerts`        |
-| Enrollment of Clients           | `/simpleenroll`   |
-| Re-enrollment of Clients        | `/simplereenroll` |
+| Operation                       | Operation Path                    |
+| ------------------------------- | --------------------------------- |
+| Distribution of CA Certificates | `/.well-known/est/cacerts`        |
+| Enrollment of Clients           | `/.well-known/est/simpleenroll`   |
+| Re-enrollment of Clients        | `/.well-known/est/simplereenroll` |
+| Revoke Client                   | `/revoke`                         |
 
 ## Configuration
 
