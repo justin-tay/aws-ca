@@ -14,6 +14,10 @@ const baseHandler: Handler<
   APIGatewayProxyEvent,
   APIGatewayProxyResult
 > = async (event) => {
+  if (event.requestContext.domainName) {
+    process.env.ROOT_CA_OCSP_RESPONDER = `http://${event.requestContext.domainName}/${event.requestContext.stage}/ocsp/root-ca`;
+    process.env.SUB_CA_OCSP_RESPONDER = `http://${event.requestContext.domainName}/${event.requestContext.stage}/ocsp/sub-ca`;
+  }
   try {
     if (
       event.pathParameters?.proxy === 'simpleenroll' ||

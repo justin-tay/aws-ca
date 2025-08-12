@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import {
+  AuthorityInfoAccessExtension,
   AuthorityKeyIdentifierExtension,
   BasicConstraintsExtension,
   ChallengePasswordAttribute,
@@ -31,6 +32,7 @@ export interface SignCertificateParams {
   profile: string;
   challengePassword?: string;
   crlDistributionPoint?: string;
+  ocsp?: string;
 }
 export interface SignCertificateResult {
   certificate: X509Certificate;
@@ -46,6 +48,7 @@ export async function signCertificate(
     profile,
     challengePassword,
     crlDistributionPoint,
+    ocsp,
   } = params;
   if (!ca.privateKey) {
     throw new Error('Private key for CA is required');
@@ -126,6 +129,9 @@ export async function signCertificate(
           ),
         );
       }
+      if (ocsp) {
+        extensions.push(new AuthorityInfoAccessExtension({ ocsp }));
+      }
       break;
     case 'client':
       extensions.push(new BasicConstraintsExtension(false, undefined, true));
@@ -160,6 +166,9 @@ export async function signCertificate(
             AsnConvert.serialize(crlDistributionPoints),
           ),
         );
+      }
+      if (ocsp) {
+        extensions.push(new AuthorityInfoAccessExtension({ ocsp }));
       }
       break;
   }

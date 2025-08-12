@@ -14,6 +14,7 @@ export interface CreateCaHierarchyParams {
     name: string | JsonName | Name;
     validity: number;
     crlDistributionPoint?: string;
+    ocsp?: string;
   };
 }
 export interface CreateCaHierarchyResult {
@@ -54,6 +55,7 @@ export async function createCaHierarchy(
     ca: rootCaResult.certificate,
     validity: subCa.validity,
     crlDistributionPoint: subCa.crlDistributionPoint,
+    ocsp: subCa.ocsp,
   });
 
   subCaResult.certificate.privateKey = subCaKeys.privateKey;

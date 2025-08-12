@@ -18,6 +18,7 @@ export async function initializeCertificateAuthority() {
     rootCaCrlKey,
     rootCaKeySecretId,
     rootCaKeyParameterName,
+    rootCaOcspResponder,
     subCaCrlBucketName,
     subCaCrlKey,
     subCaKeySecretId,
@@ -36,6 +37,7 @@ export async function initializeCertificateAuthority() {
       name: subCaName,
       validity: 15,
       crlDistributionPoint,
+      ocsp: rootCaOcspResponder,
     },
   });
   try {

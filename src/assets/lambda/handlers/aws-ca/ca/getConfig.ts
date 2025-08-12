@@ -16,11 +16,13 @@ interface Config {
   rootCaKeyParameterName: string;
   rootCaCrlBucketName?: string;
   rootCaCrlKey: string;
+  rootCaOcspResponder?: string;
   subCaName: string;
   subCaKeySecretId: string;
   subCaKeyParameterName: string;
   subCaCrlBucketName?: string;
   subCaCrlKey: string;
+  subCaOcspResponder?: string;
   keyStore: KeyStore;
   keyAlgorithm: RsaHashedKeyGenParams | EcKeyGenParams;
   region: string;
@@ -80,9 +82,9 @@ export function getConfig() {
         '/prod/aws-ca/root-ca/key',
       rootCaCrlBucketName:
         nonEmpty(process.env.ROOT_CA_CRL_BUCKET_NAME) ??
-        nonEmpty(process.env.CA_CRL_BUCKET_NAME) ??
-        undefined,
+        nonEmpty(process.env.CA_CRL_BUCKET_NAME),
       rootCaCrlKey: nonEmpty(process.env.ROOT_CA_CRL_KEY) ?? 'root-ca.crl',
+      rootCaOcspResponder: nonEmpty(process.env.ROOT_CA_OCSP_RESPONDER),
       subCaName: nonEmpty(process.env.SUB_CA_NAME) ?? getSubCaName(name),
       subCaKeySecretId:
         nonEmpty(process.env.SUB_CA_KEY_SECRET_ID) ?? 'prod/aws-ca/sub-ca/key',
@@ -91,12 +93,12 @@ export function getConfig() {
         '/prod/aws-ca/sub-ca/key',
       subCaCrlBucketName:
         nonEmpty(process.env.SUB_CA_CRL_BUCKET_NAME) ??
-        nonEmpty(process.env.CA_CRL_BUCKET_NAME) ??
-        undefined,
+        nonEmpty(process.env.CA_CRL_BUCKET_NAME),
       subCaCrlKey: nonEmpty(process.env.SUB_CA_CRL_KEY) ?? 'sub-ca.crl',
+      subCaOcspResponder: nonEmpty(process.env.SUB_CA_OCSP_RESPONDER),
       keyStore:
         (nonEmpty(process.env.KEYSTORE) as KeyStore) ?? KeyStore.ParameterStore,
-      //keyStore: KeyStore.SecretsManager
+      //keyStore: KeyStore.SecretsMamager
       keyAlgorithm,
       region: nonEmpty(process.env.AWS_REGION) ?? 'ap-southeast-1',
       pepper,
