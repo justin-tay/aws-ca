@@ -9,9 +9,9 @@ import { getObjectUrl } from './getObjectUrl';
 export async function requestCertificate(params: { subject: string }) {
   const subCa = await loadSubCa();
   const { subject } = params;
+  const { keyAlgorithm, subCaOcspResponder } = getConfig();
   if (subCa.certificate && subject) {
-    const alg = getConfig().keyAlgorithm;
-    const clientKeys = await crypto.subtle.generateKey(alg, true, [
+    const clientKeys = await crypto.subtle.generateKey(keyAlgorithm, true, [
       'sign',
       'verify',
     ]);
@@ -29,6 +29,7 @@ export async function requestCertificate(params: { subject: string }) {
       validity: 3,
       profile: 'client',
       crlDistributionPoint,
+      ocsp: subCaOcspResponder,
     });
     await saveCaIndex({
       ca: { certificate: subCa.certificate },

@@ -3,6 +3,7 @@ import { signCertificate } from './signCertificate';
 import { loadSubCa } from './loadSubCa';
 import { saveCaIndex } from './saveCaIndex';
 import { getObjectUrl } from './getObjectUrl';
+import { getConfig } from './getConfig';
 
 export interface IssueCertificateParams {
   csr: Pkcs10CertificateRequest;
@@ -18,6 +19,7 @@ export async function issueCertificate(
   params: IssueCertificateParams,
 ): Promise<IssueCertificateResult> {
   const { csr, validity, profile, challengePassword } = params;
+  const { subCaOcspResponder } = getConfig();
   const subCa = await loadSubCa();
   if (subCa.certificate) {
     let crlDistributionPoint;
@@ -34,6 +36,7 @@ export async function issueCertificate(
       profile,
       challengePassword,
       crlDistributionPoint,
+      ocsp: subCaOcspResponder,
     });
     await saveCaIndex({
       ca: { certificate: subCa.certificate },
