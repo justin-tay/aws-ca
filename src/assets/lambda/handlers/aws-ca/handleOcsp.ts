@@ -3,6 +3,7 @@ import {
   BasicOCSPResponse,
   OCSPRequest,
   OCSPResponse,
+  RelativeDistinguishedNames,
   ResponseBytes,
   SingleResponse,
   id_PKIX_OCSP_Basic,
@@ -69,7 +70,10 @@ export async function handleOcsp(
 
   const basicOcspResponse = new BasicOCSPResponse();
 
-  basicOcspResponse.tbsResponseData.responderID = subCa.certificate?.subject;
+  basicOcspResponse.tbsResponseData.responderID =
+    new RelativeDistinguishedNames({
+      valueBeforeDecode: subCa.certificate?.subjectName.toArrayBuffer(),
+    });
   basicOcspResponse.tbsResponseData.producedAt = new Date();
 
   for (const request of ocspRequest.tbsRequest.requestList) {
@@ -150,7 +154,7 @@ export async function handleOcsp(
 
     basicOcspResponse.tbsResponseData.responses.push(response);
   }
-
+  await basicOcspResponse.sign(subCa.certificate?.privateKey!, 'SHA-256');
   const basicOcspResponseRaw = basicOcspResponse.toSchema().toBER(false);
 
   const ocspResponse = new OCSPResponse({
