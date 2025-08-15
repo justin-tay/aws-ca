@@ -120,6 +120,10 @@ export default class ApiGatewayToLambdaCa extends Construct {
           handler: this.lambdaFunction,
           proxy: true,
           ...props.apiGatewayToLambdaProps?.apiGatewayProps,
+          binaryMediaTypes: [
+            'application/ocsp-request',
+            'application/ocsp-response',
+          ],
         },
       },
     );

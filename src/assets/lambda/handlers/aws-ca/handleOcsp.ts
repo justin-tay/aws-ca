@@ -7,12 +7,20 @@ import {
   SingleResponse,
   id_PKIX_OCSP_Basic,
 } from 'pkijs';
-import { Enumerated, OctetString, Primitive } from 'asn1js';
+import { Convert } from 'pvtsutils';
+import {
+  Enumerated,
+  OctetString,
+  Primitive,
+  Constructed,
+  GeneralizedTime,
+} from 'asn1js';
 import { getConfig } from './ca/getConfig';
 import { loadSubCa } from './ca/loadSubCa';
 import { QueryCommand } from '@aws-sdk/lib-dynamodb';
 import { getDynamoDBDocumentClient } from './ca/getDynamoDBDocumentClient';
 import CertificateStatus from './ca/CertificateStatus';
+import { X509CrlReason } from '@peculiar/x509';
 
 export async function handleOcsp(
   event: APIGatewayProxyEvent,
@@ -66,7 +74,9 @@ export async function handleOcsp(
 
   for (const request of ocspRequest.tbsRequest.requestList) {
     const certID = request.reqCert;
-    const serialNumber = certID.serialNumber;
+    const serialNumber = Convert.ToHex(
+      request.reqCert.serialNumber.valueBlock.valueHexView,
+    );
 
     const certificateCommand = new QueryCommand({
       TableName: getConfig().caIndexTableName,
@@ -81,8 +91,9 @@ export async function handleOcsp(
 
     const certificateResponse = await docClient.send(certificateCommand);
 
-    let tagNumber = 2; // unknown
-    let valueHex;
+    const response = new SingleResponse({
+      certID,
+    });
     if (
       certificateResponse &&
       certificateResponse.Count &&
@@ -90,27 +101,51 @@ export async function handleOcsp(
       certificateResponse.Items
     ) {
       if (certificateResponse.Items[0].Status === CertificateStatus.Revoked) {
-        tagNumber = 1; // revoked
-        // TODO create RevokedInfo
+        response.certStatus = new Constructed({
+          idBlock: {
+            tagClass: 3,
+            tagNumber: 1, // revoked
+          },
+          value: [
+            new GeneralizedTime({
+              valueDate: new Date(certificateResponse.Items[0].RevocationDate),
+            }),
+            new Constructed({
+              optional: true,
+              idBlock: {
+                tagClass: 3,
+                tagNumber: 0,
+              },
+              value: [
+                new Enumerated({
+                  value:
+                    certificateResponse.Items[0].RevocationReason ??
+                    X509CrlReason.unspecified,
+                }),
+              ],
+            }),
+          ],
+        });
       } else if (
         certificateResponse.Items[0].Status === CertificateStatus.Expired
       ) {
-        //tagNumber = 2; // unknown
+        response.certStatus = new Primitive({
+          idBlock: {
+            tagClass: 3,
+            tagNumber: 2, // unknown
+          },
+          lenBlock: { length: 1 },
+        });
       } else {
-        tagNumber = 0; // good
+        response.certStatus = new Primitive({
+          idBlock: {
+            tagClass: 3,
+            tagNumber: 0, // good
+          },
+        });
       }
     }
 
-    const response = new SingleResponse({
-      certID,
-    });
-    response.certStatus = new Primitive({
-      idBlock: {
-        tagClass: 3,
-        tagNumber,
-      },
-      valueHex,
-    });
     response.thisUpdate = new Date();
 
     basicOcspResponse.tbsResponseData.responses.push(response);
