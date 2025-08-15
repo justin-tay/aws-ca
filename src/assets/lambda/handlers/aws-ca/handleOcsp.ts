@@ -32,7 +32,7 @@ export async function handleOcsp(
     ocspRequest = OCSPRequest.fromBER(
       Buffer.from(
         event.path.substring(event.path.lastIndexOf('/') + 1),
-        'base64',
+        'base64url',
       ),
     ); // base64 encoded
   } else if (httpMethod === 'POST') {
