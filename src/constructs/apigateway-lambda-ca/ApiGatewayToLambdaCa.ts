@@ -21,6 +21,9 @@ import {
   VerificationEmailStyle,
 } from 'aws-cdk-lib/aws-cognito';
 import { Bucket, BucketEncryption } from 'aws-cdk-lib/aws-s3';
+import { EndpointType } from 'aws-cdk-lib/aws-apigateway';
+import { Distribution } from 'aws-cdk-lib/aws-cloudfront';
+import { HttpOrigin, RestApiOrigin } from 'aws-cdk-lib/aws-cloudfront-origins';
 
 const DEFAULT_MEMORY_SIZE = 1024;
 const DEFAULT_TIMEOUT = Duration.seconds(6);
@@ -49,6 +52,8 @@ export default class ApiGatewayToLambdaCa extends Construct {
   public readonly rootCaCrlBucket?: Bucket;
 
   public readonly subCaCrlBucket?: Bucket;
+
+  public readonly distribution: Distribution;
 
   constructor(
     scope: Construct,
@@ -125,9 +130,23 @@ export default class ApiGatewayToLambdaCa extends Construct {
             'application/ocsp-request',
             'application/ocsp-response',
           ],
+          endpointConfiguration: {
+            types: [EndpointType.REGIONAL],
+          },
         },
       },
     );
+
+    this.distribution = new Distribution(this, 'CaDistribution', {
+      defaultBehavior: {
+        origin: new RestApiOrigin(this.apiGatewayToLambda.apiGateway),
+      },
+    });
+
+    //this.apiGatewayToLambda.lambdaFunction.addEnvironment(
+    //  'SUB_CA_OCSP_RESPONDER',
+    // `http://${this.distribution.distributionDomainName}/${this.apiGatewayToLambda.apiGateway.deploymentStage.stageName}`,
+    //);
 
     this.apiGatewayToLambda.lambdaFunction.addToRolePolicy(
       new PolicyStatement({
