@@ -154,6 +154,8 @@ export async function handleOcsp(
 
     basicOcspResponse.tbsResponseData.responses.push(response);
   }
+  basicOcspResponse.tbsResponseData.responseExtensions =
+    ocspRequest.tbsRequest.requestExtensions; // nonce
   await basicOcspResponse.sign(subCa.certificate?.privateKey!, 'SHA-256');
   const basicOcspResponseRaw = basicOcspResponse.toSchema().toBER(false);
 
