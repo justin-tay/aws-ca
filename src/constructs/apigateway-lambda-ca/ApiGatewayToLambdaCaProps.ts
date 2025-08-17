@@ -4,6 +4,7 @@ import { FunctionProps } from 'aws-cdk-lib/aws-lambda';
 import { CaLambdaProps } from './CaLambdaProps';
 
 export interface ApiGatewayToLambdaCaProps {
+  readonly cloudfrontDistributionEnabled?: boolean;
   readonly caLambdaProps?: CaLambdaProps;
 
   /**

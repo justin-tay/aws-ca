@@ -1,4 +1,4 @@
-import { Duration, RemovalPolicy } from 'aws-cdk-lib';
+import { CfnOutput, Duration, RemovalPolicy } from 'aws-cdk-lib';
 import {
   Code,
   Function as LambdaFunction,
@@ -27,7 +27,7 @@ import {
   Distribution,
   OriginRequestPolicy,
 } from 'aws-cdk-lib/aws-cloudfront';
-import { HttpOrigin, RestApiOrigin } from 'aws-cdk-lib/aws-cloudfront-origins';
+import { RestApiOrigin } from 'aws-cdk-lib/aws-cloudfront-origins';
 
 const DEFAULT_MEMORY_SIZE = 1024;
 const DEFAULT_TIMEOUT = Duration.seconds(6);
@@ -57,7 +57,7 @@ export default class ApiGatewayToLambdaCa extends Construct {
 
   public readonly subCaCrlBucket?: Bucket;
 
-  public readonly distribution: Distribution;
+  public readonly distribution?: Distribution;
 
   constructor(
     scope: Construct,
@@ -141,18 +141,20 @@ export default class ApiGatewayToLambdaCa extends Construct {
       },
     );
 
-    this.distribution = new Distribution(this, 'CaDistribution', {
-      defaultBehavior: {
-        origin: new RestApiOrigin(this.apiGatewayToLambda.apiGateway),
-        allowedMethods: AllowedMethods.ALLOW_ALL,
-        originRequestPolicy: OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
-      },
-    });
+    if (props.cloudfrontDistributionEnabled) {
+      this.distribution = new Distribution(this, 'CaDistribution', {
+        defaultBehavior: {
+          origin: new RestApiOrigin(this.apiGatewayToLambda.apiGateway),
+          allowedMethods: AllowedMethods.ALLOW_ALL,
+          originRequestPolicy:
+            OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
+        },
+      });
 
-    //this.apiGatewayToLambda.lambdaFunction.addEnvironment(
-    //  'SUB_CA_OCSP_RESPONDER',
-    // `http://${this.distribution.distributionDomainName}/${this.apiGatewayToLambda.apiGateway.deploymentStage.stageName}`,
-    //);
+      new CfnOutput(this, 'CaDistributionDomainName', {
+        value: this.distribution.distributionDomainName,
+      });
+    }
 
     this.apiGatewayToLambda.lambdaFunction.addToRolePolicy(
       new PolicyStatement({
