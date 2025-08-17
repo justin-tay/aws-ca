@@ -22,7 +22,11 @@ import {
 } from 'aws-cdk-lib/aws-cognito';
 import { Bucket, BucketEncryption } from 'aws-cdk-lib/aws-s3';
 import { EndpointType } from 'aws-cdk-lib/aws-apigateway';
-import { Distribution } from 'aws-cdk-lib/aws-cloudfront';
+import {
+  AllowedMethods,
+  Distribution,
+  OriginRequestPolicy,
+} from 'aws-cdk-lib/aws-cloudfront';
 import { HttpOrigin, RestApiOrigin } from 'aws-cdk-lib/aws-cloudfront-origins';
 
 const DEFAULT_MEMORY_SIZE = 1024;
@@ -140,6 +144,8 @@ export default class ApiGatewayToLambdaCa extends Construct {
     this.distribution = new Distribution(this, 'CaDistribution', {
       defaultBehavior: {
         origin: new RestApiOrigin(this.apiGatewayToLambda.apiGateway),
+        allowedMethods: AllowedMethods.ALLOW_ALL,
+        originRequestPolicy: OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
       },
     });
 
