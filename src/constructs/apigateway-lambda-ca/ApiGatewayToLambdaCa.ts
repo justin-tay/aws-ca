@@ -93,6 +93,10 @@ export default class ApiGatewayToLambdaCa extends Construct {
       removalPolicy: RemovalPolicy.DESTROY,
     });
 
+    new CfnOutput(this, 'CaUserPoolId', {
+      value: this.caUserPool.userPoolId,
+    });
+
     this.caUserPoolClient = this.caUserPool.addClient('CaUserPoolClient', {
       userPoolClientName: 'CaUserPoolClient',
       // Define attribute permissions (read/write) for standard and custom attributes

@@ -7,7 +7,7 @@ import { getConfig } from './ca/getConfig';
 export async function handleRevoke(
   event: APIGatewayProxyEvent,
 ): Promise<APIGatewayProxyResult> {
-  const { headers, body, httpMethod } = event; // contains the csr in pem format
+  const { headers, body, httpMethod, isBase64Encoded } = event;
   if (httpMethod !== 'POST') {
     return {
       statusCode: 405,
@@ -57,7 +57,9 @@ export async function handleRevoke(
       };
     }
   }
-  const params = new URLSearchParams(body);
+  const params = new URLSearchParams(
+    isBase64Encoded ? Buffer.from(body, 'base64').toString() : body,
+  );
   const serialNumber = params.get('serialNumber');
   if (!serialNumber) {
     return {

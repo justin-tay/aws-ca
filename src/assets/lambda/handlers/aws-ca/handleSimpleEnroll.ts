@@ -8,7 +8,7 @@ import { authorize } from './authorize';
 export async function handleSimpleEnroll(
   event: APIGatewayProxyEvent,
 ): Promise<APIGatewayProxyResult> {
-  const { headers, body, httpMethod } = event; // contains the csr in pem format
+  const { headers, body, httpMethod, isBase64Encoded } = event; // contains the csr in pem format
   if (httpMethod !== 'POST') {
     return {
       statusCode: 405,
@@ -59,7 +59,9 @@ export async function handleSimpleEnroll(
     }
   }
 
-  const csr = new Pkcs10CertificateRequest(body);
+  const csr = new Pkcs10CertificateRequest(
+    isBase64Encoded ? Buffer.from(body, 'base64') : body,
+  );
   const result = await issueCertificate({
     csr,
     validity: 3,
