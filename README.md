@@ -35,6 +35,7 @@ https://xyz.execute-api.ap-southeast-1.amazonaws.com/dev/.well-known/est/simplee
 | Enrollment of Clients           | `/.well-known/est/simpleenroll`   |
 | Re-enrollment of Clients        | `/.well-known/est/simplereenroll` |
 | Revoke Client                   | `/revoke`                         |
+| OCSP Responder                  | `/ocsp`                           |
 
 ## Configuration
 
@@ -96,6 +97,8 @@ npm run destroy
 When using Windows the [`certreq`](https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/certreq_1) application can be used to generate the CSR using an `inf` configuration file.
 
 The private key will stored in the Windows certificate store in the `Certificate Enrollment Requests` folder in either the `Current User` or `Local Computer` certificate store if `MachineKeySet` is `TRUE`.
+
+Note that Browsers will only use client certificates under `Personal` in the `Current User` certificate store.
 
 The `certlm.msc` command can be used to open the `Local Computer` certificate store in Windows.
 

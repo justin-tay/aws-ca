@@ -20,19 +20,19 @@ $CertificateFolder = "."
 $CsrPath = "$CertificateFolder\$($DeviceUid).csr"
 $InfPath = "$CertificateFolder\$($DeviceUid).inf"
 
-$Signature = '$Windows NT$' 
+$Signature = '$Windows NT$'
 
 $Inf =
 @"
 [Version]
-Signature= "$Signature" 
- 
+Signature= "$Signature"
+
 [NewRequest]
 Subject = "CN=$DeviceUid"
 KeySpec = AT_KEYEXCHANGE
 KeyLength = 2048
 Exportable = false
-MachineKeySet = true
+MachineKeySet = false
 SMIME = false
 PrivateKeyArchive = false
 UserProtected = false
@@ -43,7 +43,7 @@ RequestType = PKCS10
 KeyUsage = 0xa0
 HashAlgorithm = SHA256
 SuppressDefaults = true
- 
+
 [EnhancedKeyUsageExtension]
 OID=1.3.6.1.5.5.7.3.2
 
