@@ -29,12 +29,21 @@ export async function handleOcsp(
   const { headers, body, httpMethod } = event;
   let ocspRequest;
   if (httpMethod === 'GET') {
-    ocspRequest = OCSPRequest.fromBER(
-      Buffer.from(
-        event.path.substring(event.path.lastIndexOf('/') + 1),
-        'base64url',
-      ),
-    ); // base64 encoded
+    const urlEncodedOcspRequest = event.path.substring(
+      event.path.lastIndexOf('/') + 1,
+    );
+    try {
+      ocspRequest = OCSPRequest.fromBER(
+        Buffer.from(decodeURIComponent(urlEncodedOcspRequest), 'base64'),
+      ); // base64 encoded
+    } catch (err) {
+      ocspRequest = OCSPRequest.fromBER(
+        Buffer.from(
+          decodeURIComponent(urlEncodedOcspRequest.replace(/\+/g, ' ')),
+          'base64',
+        ),
+      ); // base64 encoded
+    }
   } else if (httpMethod === 'POST') {
     if (
       headers['Content-Type'] !== 'application/ocsp-request' &&

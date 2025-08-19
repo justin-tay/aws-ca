@@ -37,6 +37,8 @@ https://xyz.execute-api.ap-southeast-1.amazonaws.com/dev/.well-known/est/simplee
 | Revoke Client                   | `/revoke`                         |
 | OCSP Responder                  | `/ocsp`                           |
 
+Note that as API Gateway only supports HTTPS endpoints, the OCSP Responder is a HTTPS uri.
+
 ## Configuration
 
 | Environment Variable         | Description                                                                    | Default                     |
