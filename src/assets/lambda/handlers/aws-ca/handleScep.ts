@@ -13,6 +13,7 @@ import {
 import { fromBER } from 'asn1js';
 import { loadSubCa } from './ca/loadSubCa';
 import { Pkcs10CertificateRequest } from '@peculiar/x509';
+import { issueCertificate } from './ca/issueCertificate';
 
 const id_Attributes_MessageType = '2.16.840.1.113733.1.9.2'; // {id-attributes messageType(2)}
 
@@ -134,7 +135,28 @@ export async function handleScep(
           recipientPrivateKey: subCa.certificate.privateKey,
         });
         const csr = new Pkcs10CertificateRequest(decrypted);
-        console.log(csr.subjectName);
+        const result = await issueCertificate({
+          csr,
+          validity: 3,
+          profile: 'client',
+        });
+        if (result) {
+          const certificateChain = await loadCertificateChain({
+            issuerName: result.certificate.issuerName.toString(),
+          });
+          const content = await exportPkcs7CertificateChainBinary({
+            certificateChain: [result.certificate, ...certificateChain],
+          });
+          return {
+            headers: {
+              'Content-Type': 'application/x-pki-message',
+              'Content-Length': content.byteLength,
+            },
+            statusCode: 200,
+            body: Buffer.from(content).toString('base64'),
+            isBase64Encoded: true,
+          };
+        }
       }
     }
   }
