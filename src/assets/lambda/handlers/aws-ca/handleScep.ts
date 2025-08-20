@@ -7,7 +7,9 @@ import {
   ContentInfo,
   EnvelopedData,
   id_ContentType_Data,
+  id_ContentType_EnvelopedData,
   id_ContentType_SignedData,
+  RecipientInfo,
   SignedData,
 } from 'pkijs';
 import { fromBER } from 'asn1js';
@@ -109,9 +111,18 @@ export async function handleScep(
     if (signedData.encapContentInfo.eContent) {
       const subCa = await loadSubCa();
       if (subCa.certificate && subCa.certificate.privateKey) {
-        const envelopedData = EnvelopedData.fromBER(
-          signedData.encapContentInfo.eContent.getValue(),
+        const pkcsPKIEnvelope = ContentInfo.fromBER(
+          signedData.encapContentInfo.eContent.valueBlock.valueHexView,
         );
+        if (pkcsPKIEnvelope.contentType !== id_ContentType_EnvelopedData) {
+          return {
+            statusCode: 400,
+            body: 'signedData encapContentInfo eContent contentType must be envelopedData',
+          };
+        }
+        const envelopedData = new EnvelopedData({
+          schema: pkcsPKIEnvelope.content,
+        });
         const recipientCertificate = new Certificate({
           schema: fromBER(subCa.certificate.rawData).result,
         });
