@@ -2,6 +2,17 @@ import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
 import { loadCertificateChain } from './ca/loadCertificateChain';
 import { getConfig } from './ca/getConfig';
 import { exportPkcs7CertificateChainBinary } from './ca/exportPkcs7CertificateChainBinary';
+import {
+  Certificate,
+  ContentInfo,
+  EnvelopedData,
+  id_ContentType_Data,
+  id_ContentType_SignedData,
+  SignedData,
+} from 'pkijs';
+import { fromBER } from 'asn1js';
+import { loadSubCa } from './ca/loadSubCa';
+import { Pkcs10CertificateRequest } from '@peculiar/x509';
 
 export async function handleScep(
   event: APIGatewayProxyEvent,
@@ -27,7 +38,9 @@ export async function handleScep(
     }
   } else if (httpMethod === 'POST') {
     if (body) {
-      message = isBase64Encoded ? Buffer.from(body, 'base64') : body;
+      message = isBase64Encoded
+        ? Buffer.from(body, 'base64')
+        : Buffer.from(body);
     } else {
       message = null;
     }
@@ -84,6 +97,37 @@ export async function handleScep(
           statusCode: 415,
           body: 'Unsupported Media Type',
         };
+      }
+    }
+    const pkiMessage = ContentInfo.fromBER(message);
+    if (pkiMessage.contentType !== id_ContentType_SignedData) {
+      return {
+        statusCode: 400,
+        body: 'pkiMessage contentType must be signedData',
+      };
+    }
+    const signedData = new SignedData({ schema: pkiMessage.content });
+    if (signedData.encapContentInfo.eContentType !== id_ContentType_Data) {
+      return {
+        statusCode: 400,
+        body: 'signedData eContentType must be data',
+      };
+    }
+    if (signedData.encapContentInfo.eContent) {
+      const subCa = await loadSubCa();
+      if (subCa.certificate && subCa.certificate.privateKey) {
+        const envelopedData = EnvelopedData.fromBER(
+          signedData.encapContentInfo.eContent.getValue(),
+        );
+        const recipientCertificate = new Certificate({
+          schema: fromBER(subCa.certificate.rawData).result,
+        });
+        const decrypted = await envelopedData.decrypt(0, {
+          recipientCertificate,
+          recipientPrivateKey: subCa.certificate.privateKey,
+        });
+        const csr = new Pkcs10CertificateRequest(decrypted);
+        console.log(csr.subjectName);
       }
     }
   }
