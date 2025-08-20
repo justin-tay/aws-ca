@@ -14,6 +14,7 @@ import { fromBER } from 'asn1js';
 import { loadSubCa } from './ca/loadSubCa';
 import { Pkcs10CertificateRequest } from '@peculiar/x509';
 import { issueCertificate } from './ca/issueCertificate';
+import { getCACert } from './getCaCert';
 
 const id_Attributes_MessageType = '2.16.840.1.113733.1.9.2'; // {id-attributes messageType(2)}
 
@@ -67,33 +68,7 @@ export async function handleScep(
     const certificateChain = await loadCertificateChain({
       issuerName: getConfig().subCaName,
     });
-    if (certificateChain.length === 1) {
-      // binary X.509
-      const content = certificateChain[0].rawData;
-      return {
-        headers: {
-          'Content-Type': 'application/x-x509-ca-cert',
-          'Content-Length': content.byteLength,
-        },
-        statusCode: 200,
-        body: Buffer.from(content).toString('base64'),
-        isBase64Encoded: true,
-      };
-    } else {
-      // binary CMS
-      const content = await exportPkcs7CertificateChainBinary({
-        certificateChain,
-      });
-      return {
-        headers: {
-          'Content-Type': 'application/x-x509-ca-ra-cert',
-          'Content-Length': content.byteLength,
-        },
-        statusCode: 200,
-        body: Buffer.from(content).toString('base64'),
-        isBase64Encoded: true,
-      };
-    }
+    return await getCACert({ ca: certificateChain[0] }); // subCA is the ca
   } else if (operation === 'PKIOperation') {
     if (!message) {
       return {
