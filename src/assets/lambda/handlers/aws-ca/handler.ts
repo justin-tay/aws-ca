@@ -8,6 +8,7 @@ import { initializeCryptoEngine } from './ca/initializeCryptoEngine';
 import { handleCaCerts } from './handleCaCerts';
 import { handleRevoke } from './handleRevoke';
 import { handleOcsp } from './handleOcsp';
+import { handleScep } from './handleScep';
 
 initializeCryptoEngine();
 
@@ -38,6 +39,8 @@ const baseHandler: Handler<
       return await handleRevoke(event);
     } else if (event.pathParameters?.proxy?.indexOf('ocsp') != -1) {
       return await handleOcsp(event);
+    } else if (event.pathParameters?.proxy === 'cgi-bin/pkiclient.exe') {
+      return await handleScep(event);
     }
     const body = JSON.stringify(event);
     return {

@@ -35,14 +35,15 @@ export async function handleOcsp(
     try {
       ocspRequest = OCSPRequest.fromBER(
         Buffer.from(decodeURIComponent(urlEncodedOcspRequest), 'base64'),
-      ); // base64 encoded
+      );
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
     } catch (err) {
       ocspRequest = OCSPRequest.fromBER(
         Buffer.from(
-          decodeURIComponent(urlEncodedOcspRequest.replace(/\+/g, ' ')),
+          decodeURIComponent(urlEncodedOcspRequest.replace(/\+/g, ' ')), // java.net.URLDecoder
           'base64',
         ),
-      ); // base64 encoded
+      );
     }
   } else if (httpMethod === 'POST') {
     if (
@@ -75,6 +76,12 @@ export async function handleOcsp(
   }
 
   const subCa = await loadSubCa();
+  if (!subCa.certificate?.privateKey) {
+    return {
+      statusCode: 500,
+      body: 'Internal Server Error',
+    };
+  }
   const docClient = getDynamoDBDocumentClient();
 
   const basicOcspResponse = new BasicOCSPResponse();
@@ -165,7 +172,7 @@ export async function handleOcsp(
   }
   basicOcspResponse.tbsResponseData.responseExtensions =
     ocspRequest.tbsRequest.requestExtensions; // nonce
-  await basicOcspResponse.sign(subCa.certificate?.privateKey!, 'SHA-256');
+  await basicOcspResponse.sign(subCa.certificate?.privateKey, 'SHA-256');
   const basicOcspResponseRaw = basicOcspResponse.toSchema().toBER(false);
 
   const ocspResponse = new OCSPResponse({
