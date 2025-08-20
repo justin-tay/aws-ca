@@ -14,6 +14,8 @@ import { fromBER } from 'asn1js';
 import { loadSubCa } from './ca/loadSubCa';
 import { Pkcs10CertificateRequest } from '@peculiar/x509';
 
+const id_Attributes_MessageType = '2.16.840.1.113733.1.9.2'; // {id-attributes messageType(2)}
+
 export async function handleScep(
   event: APIGatewayProxyEvent,
 ): Promise<APIGatewayProxyResult> {
@@ -115,7 +117,7 @@ export async function handleScep(
     }
     //signedData.verify()
     const messageType = signedData.signerInfos[0].signedAttrs?.attributes.find(
-      (attribute) => attribute.type === '2.16.840.1.113733.1.9.2', // {id-attributes messageType(2)}
+      (attribute) => attribute.type === id_Attributes_MessageType,
     );
     console.log(messageType);
     if (signedData.encapContentInfo.eContent) {
