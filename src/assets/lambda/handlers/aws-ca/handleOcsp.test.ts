@@ -74,13 +74,12 @@ describe('handleOcsp', () => {
   it('should handle get', async () => {
     const base64 =
       'MHYwdDBNMEswSTAJBgUrDgMCGgUABBR5oi5p32zhW5K9YuakulTMQ9Z0QAQU3q/4GkSgIFr+ZEP/0Ro1nioGax4CEBI/kiYIb5pKsKhpAoRTH4GiIzAhMB8GCSsGAQUFBzABAgQSBBDLUpCBdYLhN3YBg8cl8yxG';
-    const buffer = Buffer.from(base64, 'base64');
-    const base64url = buffer.toString('base64url');
+    const urlEncodedBase64 = encodeURIComponent(base64);
 
     initializeCryptoEngine();
     const event = {
       resource: '/{proxy+}',
-      path: `/ocsp/${base64url}`,
+      path: `/ocsp/${urlEncodedBase64}`,
       httpMethod: 'GET',
       headers: {
         'CloudFront-Forwarded-Proto': 'https',
