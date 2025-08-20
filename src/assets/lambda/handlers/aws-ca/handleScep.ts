@@ -113,6 +113,11 @@ export async function handleScep(
         body: 'signedData eContentType must be data',
       };
     }
+    //signedData.verify()
+    const messageType = signedData.signerInfos[0].signedAttrs?.attributes.find(
+      (attribute) => attribute.type === '2.16.840.1.113733.1.9.2', // {id-attributes messageType(2)}
+    );
+    console.log(messageType);
     if (signedData.encapContentInfo.eContent) {
       const subCa = await loadSubCa();
       if (subCa.certificate && subCa.certificate.privateKey) {
