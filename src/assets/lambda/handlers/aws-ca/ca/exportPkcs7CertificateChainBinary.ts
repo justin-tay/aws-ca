@@ -4,6 +4,8 @@ import {
   CertificateSetItem,
   ContentInfo,
   EncapsulatedContentInfo,
+  id_ContentType_Data,
+  id_ContentType_SignedData,
   SignedData,
 } from 'pkijs';
 import { fromBER } from 'asn1js';
@@ -21,11 +23,11 @@ export async function exportPkcs7CertificateChainBinary(params: {
     );
   });
   const contentInfo = new ContentInfo({
-    contentType: '1.2.840.113549.1.7.2',
+    contentType: id_ContentType_SignedData,
     content: new SignedData({
       version: 1,
       encapContentInfo: new EncapsulatedContentInfo({
-        eContentType: '1.2.840.113549.1.7.1', // "data" content type
+        eContentType: id_ContentType_Data, // "data" content type
       }),
       certificates,
     }).toSchema(true),
