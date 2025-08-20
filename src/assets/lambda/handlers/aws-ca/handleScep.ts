@@ -53,7 +53,17 @@ export async function handleScep(
       body: 'Method Not Allowed',
     };
   }
-  if (operation === 'GetCACert') {
+  if (operation === 'GetCACaps') {
+    const caps = 'AES\r\nPOSTPKIOperation\r\nSCEPStandard\r\nSHA-256';
+    return {
+      headers: {
+        'Content-Type': 'text/plain',
+        'Content-Length': caps.length,
+      },
+      statusCode: 200,
+      body: caps,
+    };
+  } else if (operation === 'GetCACert') {
     const certificateChain = await loadCertificateChain({
       issuerName: getConfig().subCaName,
     });

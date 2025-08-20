@@ -16,6 +16,7 @@ const baseHandler: Handler<
   APIGatewayProxyEvent,
   APIGatewayProxyResult
 > = async (event) => {
+  console.log(event);
   if (event.requestContext.domainName) {
     process.env.SUB_CA_OCSP_RESPONDER = `https://${event.requestContext.domainName}/${event.requestContext.stage}/ocsp`;
   }
