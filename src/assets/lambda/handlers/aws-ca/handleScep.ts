@@ -6,10 +6,10 @@ import {
   Certificate,
   ContentInfo,
   EnvelopedData,
+  getCrypto,
   id_ContentType_Data,
   id_ContentType_EnvelopedData,
   id_ContentType_SignedData,
-  RecipientInfo,
   SignedData,
 } from 'pkijs';
 import { fromBER } from 'asn1js';
@@ -23,6 +23,7 @@ const id_Attributes_MessageType = '2.16.840.1.113733.1.9.2'; // {id-attributes m
 export async function handleScep(
   event: APIGatewayProxyEvent,
 ): Promise<APIGatewayProxyResult> {
+  const crypto = getCrypto(true);
   const { headers, body, httpMethod, queryStringParameters, isBase64Encoded } =
     event;
   const operation = queryStringParameters?.operation;
@@ -70,7 +71,7 @@ export async function handleScep(
     const certificateChain = await loadCertificateChain({
       issuerName: getConfig().subCaName,
     });
-    return await getCACert({ ca: certificateChain[0] }); // subCA is the ca
+    return await getCACert({ certificateChain });
   } else if (operation === 'PKIOperation') {
     if (!message) {
       return {
@@ -79,9 +80,10 @@ export async function handleScep(
       };
     }
     if (httpMethod === 'POST') {
+      const contentType = headers['Content-Type'] ?? headers['content-type'];
       if (
-        headers['Content-Type'] !== 'application/x-pki-message' &&
-        headers['content-type'] !== 'application/x-pki-message'
+        contentType !== 'application/x-pki-message' &&
+        contentType !== 'application/octet-stream'
       ) {
         return {
           statusCode: 415,
@@ -112,7 +114,7 @@ export async function handleScep(
       const subCa = await loadSubCa();
       if (subCa.certificate && subCa.certificate.privateKey) {
         const pkcsPKIEnvelope = ContentInfo.fromBER(
-          signedData.encapContentInfo.eContent.valueBlock.valueHexView,
+          signedData.encapContentInfo.eContent.getValue(),
         );
         if (pkcsPKIEnvelope.contentType !== id_ContentType_EnvelopedData) {
           return {
@@ -126,9 +128,14 @@ export async function handleScep(
         const recipientCertificate = new Certificate({
           schema: fromBER(subCa.certificate.rawData).result,
         });
+        const signatureKey = subCa.certificate.privateKey;
+        let recipientPrivateKey = await crypto.subtle.exportKey(
+          'pkcs8',
+          signatureKey,
+        );
         const decrypted = await envelopedData.decrypt(0, {
           recipientCertificate,
-          recipientPrivateKey: subCa.certificate.privateKey,
+          recipientPrivateKey,
         });
         const csr = new Pkcs10CertificateRequest(decrypted);
         const result = await issueCertificate({

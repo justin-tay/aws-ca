@@ -4,13 +4,13 @@ import {
   Handler,
 } from 'aws-lambda';
 import { handleSimpleEnroll } from './handleSimpleEnroll';
-import { initializeCryptoEngine } from './ca/initializeCryptoEngine';
 import { handleCaCerts } from './handleCaCerts';
 import { handleRevoke } from './handleRevoke';
 import { handleOcsp } from './handleOcsp';
 import { handleScep } from './handleScep';
+import { initializeNodeCryptoEngine } from './crypto/initializeNodeCryptoEngine';
 
-initializeCryptoEngine();
+initializeNodeCryptoEngine();
 
 const baseHandler: Handler<
   APIGatewayProxyEvent,
