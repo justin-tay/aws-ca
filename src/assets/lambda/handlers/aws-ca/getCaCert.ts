@@ -2,13 +2,12 @@ import { X509Certificate } from '@peculiar/x509';
 import { exportPkcs7CertificateChainBinary } from './ca/exportPkcs7CertificateChainBinary';
 
 export async function getCACert(params: {
-  ca: X509Certificate;
-  ra?: X509Certificate; // Registration Authority
+  certificateChain: X509Certificate[];
 }) {
-  const { ca, ra } = params;
-  if (!ra) {
+  const { certificateChain } = params;
+  if (certificateChain.length === 1) {
     // binary X.509
-    const content = ca.rawData;
+    const content = certificateChain[0].rawData;
     return {
       headers: {
         'Content-Type': 'application/x-x509-ca-cert',
@@ -21,7 +20,7 @@ export async function getCACert(params: {
   } else {
     // binary CMS
     const content = await exportPkcs7CertificateChainBinary({
-      certificateChain: [ca, ra],
+      certificateChain,
     });
     return {
       headers: {

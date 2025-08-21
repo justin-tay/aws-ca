@@ -8,10 +8,11 @@
       "type": "node",
       "request": "launch",
       "name": "Run Unit Tests For Current File",
-      "program": "${workspaceRoot}/node_modules/vitest/vitest.mjs",
-      "args": ["--no-watch", "--testNamePattern=/${fileBasename}"],
+      "program": "${workspaceFolder}/node_modules/vitest/vitest.mjs",
+      "args": ["run", "${relativeFile}"],
       "console": "integratedTerminal",
-      "internalConsoleOptions": "neverOpen"
+      "internalConsoleOptions": "neverOpen",
+      "cwd": "${workspaceFolder}"
     },
     {
       "type": "node",

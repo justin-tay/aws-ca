@@ -137,6 +137,7 @@ export default class ApiGatewayToLambdaCa extends Construct {
             '*/*',
             'application/ocsp-request',
             'application/ocsp-response',
+            'application/octet-stream',
           ],
           endpointConfiguration: {
             types: [EndpointType.REGIONAL],
