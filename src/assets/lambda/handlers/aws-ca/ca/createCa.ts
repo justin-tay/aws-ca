@@ -8,8 +8,7 @@ import {
   X509CertificateCreateParamsName,
   X509CertificateGenerator,
 } from '@peculiar/x509';
-
-import crypto from 'crypto';
+import { getCrypto } from 'pkijs';
 
 export interface CreateCaParams {
   name: X509CertificateCreateParamsName;
@@ -22,6 +21,7 @@ export interface CreateCaResult {
 
 export async function createCa(
   params: CreateCaParams,
+  crypto = getCrypto(true),
 ): Promise<CreateCaResult> {
   const { name, keys, validity } = params;
 

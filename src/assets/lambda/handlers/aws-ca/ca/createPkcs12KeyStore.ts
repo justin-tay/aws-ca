@@ -1,4 +1,3 @@
-import crypto from 'crypto';
 import { X509Certificate } from '@peculiar/x509';
 import {
   AuthenticatedSafe,
@@ -9,15 +8,19 @@ import {
   PrivateKeyInfo,
   SafeBag,
   SafeContents,
+  getCrypto,
 } from 'pkijs';
 import { fromBER } from 'asn1js';
 import { stringToArrayBuffer } from 'pvutils';
 
-export async function createPkcs12Keystore(params: {
-  certificate?: X509Certificate;
-  certificateChain: X509Certificate[];
-  password?: string;
-}) {
+export async function createPkcs12Keystore(
+  params: {
+    certificate?: X509Certificate;
+    certificateChain: X509Certificate[];
+    password?: string;
+  },
+  crypto = getCrypto(true),
+) {
   const safeBags: SafeBag<BagType>[] = [];
   const { certificate, certificateChain, password } = params;
   if (certificate) {

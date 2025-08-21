@@ -1,7 +1,6 @@
-import crypto from 'crypto';
 import { PemConverter } from '@peculiar/x509';
 import { fromBER } from 'asn1js';
-import { PKCS8ShroudedKeyBag } from 'pkijs';
+import { PKCS8ShroudedKeyBag, getCrypto } from 'pkijs';
 import { stringToArrayBuffer } from 'pvutils';
 
 export async function importPkcs8PemPrivateKey(
@@ -15,6 +14,7 @@ export async function importPkcs8PemPrivateKey(
     | AesKeyAlgorithm,
   extractable: boolean,
   keyUsages: KeyUsage[],
+  crypto = getCrypto(true),
 ) {
   const ber = PemConverter.decodeFirst(pem);
 

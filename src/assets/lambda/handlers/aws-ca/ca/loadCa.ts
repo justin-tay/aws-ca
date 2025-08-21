@@ -46,7 +46,7 @@ export async function loadCa(params: { subjectName: string }) {
       pkcs8pem,
       getPassword(response.Items[0].Hash),
       keyAlgorithm,
-      false,
+      true,
       ['sign'],
     );
     certificate.privateKey = privateKey;

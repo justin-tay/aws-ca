@@ -1,9 +1,9 @@
 import { JsonName, Name, X509Certificate } from '@peculiar/x509';
-import crypto from 'crypto';
 import { createCa } from './createCa';
 import { createCsr } from './createCsr';
 import { signCertificate } from './signCertificate';
 import { getConfig } from './getConfig';
+import { getCrypto } from 'pkijs';
 
 export interface CreateCaHierarchyParams {
   rootCa: {
@@ -28,6 +28,7 @@ export interface CreateCaHierarchyResult {
 
 export async function createCaHierarchy(
   params: CreateCaHierarchyParams,
+  crypto = getCrypto(true),
 ): Promise<CreateCaHierarchyResult> {
   const { rootCa, subCa } = params;
 

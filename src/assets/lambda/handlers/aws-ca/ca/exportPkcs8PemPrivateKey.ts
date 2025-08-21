@@ -1,13 +1,12 @@
-import crypto from 'crypto';
 import { PemConverter } from '@peculiar/x509';
 import { fromBER } from 'asn1js';
-import { ICryptoEngine, PKCS8ShroudedKeyBag, PrivateKeyInfo } from 'pkijs';
+import { PKCS8ShroudedKeyBag, PrivateKeyInfo, getCrypto } from 'pkijs';
 import { stringToArrayBuffer } from 'pvutils';
 
 export async function exportPkcs8PemPrivateKey(
   key: CryptoKey,
   password: string,
-  cryptoEngine?: ICryptoEngine,
+  crypto = getCrypto(true),
 ) {
   const privateKeyBinary = await crypto.subtle.exportKey('pkcs8', key);
   const privateKeyInfo = new PrivateKeyInfo({
@@ -26,7 +25,7 @@ export async function exportPkcs8PemPrivateKey(
         length: 256,
       },
     },
-    cryptoEngine,
+    crypto,
   );
   const encKeyBinary = pkcs8.toSchema().toBER(false);
   return PemConverter.encode(encKeyBinary, 'ENCRYPTED PRIVATE KEY');

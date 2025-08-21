@@ -1,4 +1,3 @@
-import crypto from 'crypto';
 import {
   AuthorityInfoAccessExtension,
   AuthorityKeyIdentifierExtension,
@@ -24,6 +23,7 @@ import {
   GeneralName,
 } from '@peculiar/asn1-x509';
 import { AsnConvert } from '@peculiar/asn1-schema';
+import { getCrypto } from 'pkijs';
 
 export interface SignCertificateParams {
   csr: Pkcs10CertificateRequest;
@@ -40,6 +40,7 @@ export interface SignCertificateResult {
 
 export async function signCertificate(
   params: SignCertificateParams,
+  crypto = getCrypto(true),
 ): Promise<SignCertificateResult> {
   const {
     ca,

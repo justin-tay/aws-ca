@@ -1,12 +1,13 @@
-import crypto from 'crypto';
 import { Pkcs10CertificateRequest } from '@peculiar/x509';
 import { createCa } from './createCa';
 import { signCertificate } from './signCertificate';
 import { initializeCryptoEngine } from './initializeCryptoEngine';
+import { getCrypto } from 'pkijs';
 
 describe('signCertificate', () => {
   it('should copy subject alt name', async () => {
     initializeCryptoEngine();
+    const crypto = getCrypto(true);
     const content = `
 -----BEGIN CERTIFICATE REQUEST-----
 MIICqjCCAZICAQAwFDESMBAGA1UEAwwJRGV2aWNlVWlkMIIBIjANBgkqhkiG9w0B

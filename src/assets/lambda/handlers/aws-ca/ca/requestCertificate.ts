@@ -1,12 +1,15 @@
-import crypto from 'crypto';
 import { createCsr } from './createCsr';
 import { signCertificate } from './signCertificate';
 import { loadSubCa } from './loadSubCa';
 import { saveCaIndex } from './saveCaIndex';
 import { getConfig } from './getConfig';
 import { getObjectUrl } from './getObjectUrl';
+import { getCrypto } from 'pkijs';
 
-export async function requestCertificate(params: { subject: string }) {
+export async function requestCertificate(
+  params: { subject: string },
+  crypto = getCrypto(true),
+) {
   const subCa = await loadSubCa();
   const { subject } = params;
   const { keyAlgorithm, subCaOcspResponder } = getConfig();
