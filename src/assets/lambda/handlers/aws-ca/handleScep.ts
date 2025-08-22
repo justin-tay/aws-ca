@@ -4,7 +4,9 @@ import { getConfig } from './ca/getConfig';
 import { exportPkcs7CertificateChainBinary } from './ca/exportPkcs7CertificateChainBinary';
 import {
   Certificate,
+  CertificateSetItem,
   ContentInfo,
+  EncapsulatedContentInfo,
   EnvelopedData,
   getCrypto,
   id_ContentType_Data,
@@ -14,7 +16,7 @@ import {
   SignedData,
   SignerInfo,
 } from 'pkijs';
-import { fromBER } from 'asn1js';
+import { OctetString, fromBER } from 'asn1js';
 import { loadSubCa } from './ca/loadSubCa';
 import { Pkcs10CertificateRequest } from '@peculiar/x509';
 import { issueCertificate } from './ca/issueCertificate';
@@ -158,9 +160,29 @@ export async function handleScep(
             const certificateChain = await loadCertificateChain({
               issuerName: result.certificate.issuerName.toString(),
             });
-            const content = await exportPkcs7CertificateChainBinary({
-              certificateChain: [result.certificate, ...certificateChain],
+            const certificateResult = [result.certificate, ...certificateChain];
+            const certificates: CertificateSetItem[] = [];
+            certificateResult.forEach((certificate) => {
+              certificates.push(
+                new Certificate({
+                  schema: fromBER(certificate.rawData).result,
+                }),
+              );
             });
+
+            const envelopedData = new EnvelopedData({});
+            const signedData = new SignedData({
+              version: 1,
+              encapContentInfo: new EncapsulatedContentInfo({
+                eContentType: id_ContentType_Data, // "data" content type
+                eContent: new OctetString({
+                  valueHex: envelopedData.toSchema().toBER(),
+                }),
+              }),
+              certificates,
+            });
+
+            const content = signedData.toSchema().toBER(false);
             return {
               headers: {
                 'Content-Type': 'application/x-pki-message',
