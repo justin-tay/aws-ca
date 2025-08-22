@@ -42,7 +42,7 @@ export function encryptUsingPBKDF2Password(
   messageToEncrypt: ArrayBuffer,
 ): ArrayBuffer {
   //#region Initial variables
-  let cipher: crypto.Cipher;
+  let cipher: crypto.Cipheriv;
   //#endregion
 
   //#region Make hash algorithm name to be Node-friendly
@@ -98,7 +98,7 @@ export function decryptUsingPBKDF2Password(
   messageToDecrypt: ArrayBuffer,
 ): ArrayBuffer {
   //#region Initial variables
-  let cipher: crypto.Cipher;
+  let cipher: crypto.Cipheriv;
   //#endregion
 
   //#region Make hash algorithm name to be Node-friendly

@@ -426,10 +426,28 @@ export default class NodeCryptoEngine extends pkijs.CryptoEngine {
     }
     //#endregion
 
+    let algorithm = contentEncryptionAlgorithm.name;
+    let length = (contentEncryptionAlgorithm as AesKeyAlgorithm).length;
+    if (algorithm === 'AES-CBC') {
+      if (length === 128) {
+        algorithm = 'AES-128-CBC';
+        length = 16;
+      } else if (length === 192) {
+        algorithm = 'AES-192-CBC';
+        length = 24;
+      } else if (length === 256) {
+        algorithm = 'AES-256-CBC';
+        length = 32;
+      } else {
+        algorithm = 'AES-256-CBC';
+        length = 32;
+      }
+    }
+
     return Promise.resolve().then(() =>
       nodeCrypto.decryptUsingPBKDF2Password(
-        contentEncryptionAlgorithm.name,
-        (contentEncryptionAlgorithm as AesKeyAlgorithm).length,
+        algorithm,
+        length,
         parameters.password,
         saltBuffer,
         iterationCount,
