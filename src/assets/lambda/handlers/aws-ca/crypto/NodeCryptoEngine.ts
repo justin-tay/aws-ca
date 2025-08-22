@@ -56,25 +56,6 @@ export default class NodeCryptoEngine extends pkijs.CryptoEngine {
           name: 'DES-EDE3-CBC',
           length: 24,
         };
-      case '2.16.840.1.101.3.4.1.2':
-        return {
-          name: 'AES-128-CBC',
-          length: 16,
-        };
-      case '2.16.840.1.101.3.4.1.22':
-        return {
-          name: 'AES-192-CBC',
-          length: 24,
-        };
-      case '2.16.840.1.101.3.4.1.42':
-        return {
-          name: 'AES-256-CBC',
-          length: 32,
-        };
-      case '1.2.840.113549.1.5.12':
-        return {
-          name: 'PBKDF2',
-        };
       default:
         return super.getAlgorithmByOID(oid, safety, target);
     }
@@ -90,12 +71,6 @@ export default class NodeCryptoEngine extends pkijs.CryptoEngine {
         return '1.2.840.113549.3.2';
       case 'DES-EDE3-CBC':
         return '1.2.840.113549.3.7';
-      case 'AES-128-CBC':
-        return '2.16.840.1.101.3.4.1.2';
-      case 'AES-192-CBC':
-        return '2.16.840.1.101.3.4.1.22';
-      case 'AES-256-CBC':
-        return '2.16.840.1.101.3.4.1.42';
       default:
         return super.getOIDByAlgorithm(algorithm, safety, target);
     }
@@ -162,119 +137,6 @@ export default class NodeCryptoEngine extends pkijs.CryptoEngine {
             return {
               algorithm: {
                 name: 'DES-EDE3-CBC',
-              },
-              usages: [],
-            };
-        }
-      case 'AES-128-CBC':
-        switch (operation.toLowerCase()) {
-          case 'importkey':
-          case 'exportkey':
-          case 'generatekey':
-            return {
-              algorithm: {
-                name: 'AES-128-CBC',
-                length: 16,
-              },
-              usages: ['encrypt', 'decrypt', 'wrapKey', 'unwrapKey'],
-            };
-          case 'decrypt':
-          case 'encrypt':
-            return {
-              algorithm: {
-                name: 'AES-128-CBC',
-                iv: this.getRandomValues(new Uint8Array(16)), // For "decrypt" the value should be replaced with value got on "encrypt" step
-                length: 16,
-              },
-              usages: ['encrypt', 'decrypt', 'wrapKey', 'unwrapKey'],
-            };
-          default:
-            return {
-              algorithm: {
-                name: 'AES-128-CBC',
-                length: 16,
-              },
-              usages: [],
-            };
-        }
-      case 'AES-192-CBC':
-        switch (operation.toLowerCase()) {
-          case 'importkey':
-          case 'exportkey':
-          case 'generatekey':
-            return {
-              algorithm: {
-                name: 'AES-192-CBC',
-                length: 24,
-              },
-              usages: ['encrypt', 'decrypt', 'wrapKey', 'unwrapKey'],
-            };
-          case 'decrypt':
-          case 'encrypt':
-            return {
-              algorithm: {
-                name: 'AES-192-CBC',
-                iv: this.getRandomValues(new Uint8Array(16)), // For "decrypt" the value should be replaced with value got on "encrypt" step
-                length: 24,
-              },
-              usages: ['encrypt', 'decrypt', 'wrapKey', 'unwrapKey'],
-            };
-          default:
-            return {
-              algorithm: {
-                name: 'AES-192-CBC',
-                length: 24,
-              },
-              usages: [],
-            };
-        }
-      case 'AES-256-CBC':
-        switch (operation.toLowerCase()) {
-          case 'importkey':
-          case 'exportkey':
-          case 'generatekey':
-            return {
-              algorithm: {
-                name: 'AES-256-CBC',
-                length: 32,
-              },
-              usages: ['encrypt', 'decrypt', 'wrapKey', 'unwrapKey'],
-            };
-          case 'decrypt':
-          case 'encrypt':
-            return {
-              algorithm: {
-                name: 'AES-256-CBC',
-                iv: this.getRandomValues(new Uint8Array(16)), // For "decrypt" the value should be replaced with value got on "encrypt" step
-                length: 32,
-              },
-              usages: ['encrypt', 'decrypt', 'wrapKey', 'unwrapKey'],
-            };
-          default:
-            return {
-              algorithm: {
-                name: 'AES-256-CBC',
-                length: 32,
-              },
-              usages: [],
-            };
-        }
-      case 'PBKDF2':
-        switch (operation.toLowerCase()) {
-          case 'derivekey':
-            return {
-              algorithm: {
-                name: 'PBKDF2',
-                hash: { name: 'SHA-256' },
-                salt: new Uint8Array([]),
-                iterations: 10000,
-              },
-              usages: ['encrypt', 'decrypt'],
-            };
-          default:
-            return {
-              algorithm: {
-                name: 'PBKDF2',
               },
               usages: [],
             };

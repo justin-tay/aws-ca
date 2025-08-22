@@ -16,21 +16,32 @@ export async function importPkcs8PemPrivateKey(
   keyUsages: KeyUsage[],
   crypto = getCrypto(true),
 ) {
-  const ber = PemConverter.decodeFirst(pem);
+  const records = PemConverter.decodeWithHeaders(pem);
+  const record = records[0];
+  if (record.type === 'ENCRYPTED PRIVATE KEY') {
+    const ber = record.rawData;
+    const pkcs8dec = new PKCS8ShroudedKeyBag({
+      schema: fromBER(ber).result,
+    });
+    // cast as any as parseInternalValues is not public
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (pkcs8dec as any).parseInternalValues({
+      password: stringToArrayBuffer(password),
+    });
 
-  const pkcs8dec = new PKCS8ShroudedKeyBag({
-    schema: fromBER(ber).result,
-  });
-  // cast as any as parseInternalValues is not public
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await (pkcs8dec as any).parseInternalValues({
-    password: stringToArrayBuffer(password),
-  });
-
-  if (pkcs8dec.parsedValue) {
+    if (pkcs8dec.parsedValue) {
+      return await crypto.subtle.importKey(
+        'pkcs8',
+        pkcs8dec.parsedValue.toSchema().toBER(),
+        algorithm,
+        extractable,
+        keyUsages,
+      );
+    }
+  } else if (record.type === 'PRIVATE KEY') {
     return await crypto.subtle.importKey(
       'pkcs8',
-      pkcs8dec.parsedValue.toSchema().toBER(),
+      record.rawData,
       algorithm,
       extractable,
       keyUsages,

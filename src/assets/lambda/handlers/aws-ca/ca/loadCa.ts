@@ -40,7 +40,7 @@ export async function loadCa(params: { subjectName: string }) {
       pkcs8pem = parameter.Parameter?.Value;
     }
     if (!pkcs8pem) {
-      return {};
+      throw new Error('Failed to load private key');
     }
     const privateKey = await importPkcs8PemPrivateKey(
       pkcs8pem,

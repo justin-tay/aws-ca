@@ -46,10 +46,8 @@ export async function handleOcsp(
       );
     }
   } else if (httpMethod === 'POST') {
-    if (
-      headers['Content-Type'] !== 'application/ocsp-request' &&
-      headers['content-type'] !== 'application/ocsp-request'
-    ) {
+    const contentType = headers['Content-Type'] ?? headers['content-type'];
+    if (contentType !== 'application/ocsp-request') {
       return {
         statusCode: 415,
         body: 'Unsupported Media Type',
@@ -164,6 +162,15 @@ export async function handleOcsp(
           },
         });
       }
+    } else {
+      // no records so unknown
+      response.certStatus = new Primitive({
+        idBlock: {
+          tagClass: 3,
+          tagNumber: 2, // unknown
+        },
+        lenBlock: { length: 1 },
+      });
     }
 
     response.thisUpdate = new Date();
