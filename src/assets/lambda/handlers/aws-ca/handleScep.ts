@@ -121,6 +121,7 @@ export async function handleScep(
     if (signedData.encapContentInfo.eContent) {
       const subCa = await loadSubCa();
       if (subCa.certificate.privateKey) {
+        const privateKey = subCa.certificate.privateKey;
         const pkcsPKIEnvelope = ContentInfo.fromBER(
           signedData.encapContentInfo.eContent.getValue(),
         );
@@ -138,7 +139,7 @@ export async function handleScep(
         });
         let recipientPrivateKey = await crypto.subtle.exportKey(
           'pkcs8',
-          subCa.certificate.privateKey,
+          privateKey,
         ); // key needs to be exported to der as rsa key usage is sign not decrypt
         const decrypted = await envelopedData.decrypt(0, {
           recipientCertificate,
@@ -157,6 +158,9 @@ export async function handleScep(
             });
             const content = await exportPkcs7CertificateChainBinary({
               certificateChain: [result.certificate, ...certificateChain],
+              signer: (signedData) => {
+                signedData.sign(privateKey, 0, 'SHA-256');
+              },
             });
             return {
               headers: {
