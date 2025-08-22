@@ -3,6 +3,7 @@ import { loadCertificateChain } from './ca/loadCertificateChain';
 import { getConfig } from './ca/getConfig';
 import { exportPkcs7CertificateChainBinary } from './ca/exportPkcs7CertificateChainBinary';
 import {
+  Attribute,
   Certificate,
   CertificateSetItem,
   ContentInfo,
@@ -13,17 +14,24 @@ import {
   id_ContentType_EnvelopedData,
   id_ContentType_SignedData,
   IssuerAndSerialNumber,
+  SignedAndUnsignedAttributes,
   SignedData,
   SignerInfo,
 } from 'pkijs';
-import { OctetString, fromBER } from 'asn1js';
+import { OctetString, PrintableString, fromBER } from 'asn1js';
 import { loadSubCa } from './ca/loadSubCa';
 import { Pkcs10CertificateRequest } from '@peculiar/x509';
 import { issueCertificate } from './ca/issueCertificate';
 import { getCACert } from './scep/getCaCert';
 import { ScepMessageType } from './scep/ScepMessageType';
-
-const id_Attributes_MessageType = '2.16.840.1.113733.1.9.2'; // {id-attributes messageType(2)}
+import {
+  id_Attributes_MessageType,
+  id_Attributes_PkiStatus,
+  id_Attributes_RecipientNonce,
+  id_Attributes_SenderNonce,
+  id_Attributes_TransactionID,
+} from './scep/ObjectIdentifiers';
+import { ScepPkiStatus } from './scep/ScepPkiStatus';
 
 export async function handleScep(
   event: APIGatewayProxyEvent,
@@ -121,6 +129,14 @@ export async function handleScep(
         body: 'messageType must be included in all PKI messages',
       };
     }
+    const senderNonceAttribute =
+      signedData.signerInfos[0].signedAttrs?.attributes.find(
+        (attribute) => attribute.type === id_Attributes_SenderNonce,
+      );
+    const transactionIDAttribute =
+      signedData.signerInfos[0].signedAttrs?.attributes.find(
+        (attribute) => attribute.type === id_Attributes_TransactionID,
+      );
     const messageType = messageTypeAttribute.values[0].getValue();
     if (signedData.encapContentInfo.eContent) {
       const subCa = await loadSubCa();
@@ -149,6 +165,12 @@ export async function handleScep(
           recipientCertificate,
           recipientPrivateKey,
         });
+        const encAlg = crypto.getAlgorithmByOID(
+          envelopedData.encryptedContentInfo.contentEncryptionAlgorithm
+            .algorithmId,
+          true,
+          'contentEncryptionAlgorithm',
+        );
         const csr = new Pkcs10CertificateRequest(decrypted);
         if (messageType === ScepMessageType.PKCSReq) {
           const result = await issueCertificate({
@@ -161,7 +183,7 @@ export async function handleScep(
               issuerName: result.certificate.issuerName.toString(),
             });
             const certificateResult = [result.certificate, ...certificateChain];
-            const certificates: CertificateSetItem[] = [];
+            const certificates: Certificate[] = [];
             certificateResult.forEach((certificate) => {
               certificates.push(
                 new Certificate({
@@ -170,7 +192,47 @@ export async function handleScep(
               );
             });
 
-            const envelopedData = new EnvelopedData({});
+            const signerInfo = new SignerInfo({
+              version: 1,
+              sid: new IssuerAndSerialNumber({
+                issuer: recipientCertificate.issuer,
+                serialNumber: recipientCertificate.serialNumber,
+              }),
+              signedAttrs: new SignedAndUnsignedAttributes({
+                type: 0,
+                attributes: [
+                  new Attribute({
+                    type: transactionIDAttribute?.type,
+                    values: transactionIDAttribute?.values,
+                  }),
+                  new Attribute({
+                    type: messageTypeAttribute?.type,
+                    values: messageTypeAttribute?.values,
+                  }),
+                  new Attribute({
+                    type: id_Attributes_PkiStatus,
+                    values: [
+                      new PrintableString({
+                        value: ScepPkiStatus.SUCCESS,
+                      }),
+                    ],
+                  }),
+                  new Attribute({
+                    type: id_Attributes_RecipientNonce,
+                    values: senderNonceAttribute?.values,
+                  }),
+                ],
+              }),
+            });
+
+            const message = await exportPkcs7CertificateChainBinary({
+              certificateChain,
+            });
+
+            const envelopedData = new EnvelopedData();
+            envelopedData.addRecipientByCertificate(certificates[0]);
+            envelopedData.encrypt(encAlg, message); // Use the same encAlg as the request
+
             const signedData = new SignedData({
               version: 1,
               encapContentInfo: new EncapsulatedContentInfo({
@@ -180,7 +242,10 @@ export async function handleScep(
                 }),
               }),
               certificates,
+              signerInfos: [signerInfo],
             });
+
+            await signedData.sign(privateKey, 0, 'SHA-256');
 
             const content = signedData.toSchema().toBER(false);
             return {
