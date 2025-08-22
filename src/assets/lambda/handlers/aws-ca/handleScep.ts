@@ -10,7 +10,9 @@ import {
   id_ContentType_Data,
   id_ContentType_EnvelopedData,
   id_ContentType_SignedData,
+  IssuerAndSerialNumber,
   SignedData,
+  SignerInfo,
 } from 'pkijs';
 import { fromBER } from 'asn1js';
 import { loadSubCa } from './ca/loadSubCa';
@@ -158,9 +160,6 @@ export async function handleScep(
             });
             const content = await exportPkcs7CertificateChainBinary({
               certificateChain: [result.certificate, ...certificateChain],
-              signer: (signedData) => {
-                signedData.sign(privateKey, 0, 'SHA-256');
-              },
             });
             return {
               headers: {

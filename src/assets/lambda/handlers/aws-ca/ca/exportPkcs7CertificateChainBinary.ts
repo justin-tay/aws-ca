@@ -11,10 +11,9 @@ import {
 import { fromBER } from 'asn1js';
 
 export async function exportPkcs7CertificateChainBinary(params: {
-  certificateChain: X509Certificate[];
-  signer?: (signedData: SignedData) => void;
+  certificateChain: X509Certificate[]
 }) {
-  const { certificateChain, signer } = params;
+  const { certificateChain } = params;
   const certificates: CertificateSetItem[] = [];
   certificateChain.forEach((certificate) => {
     certificates.push(
@@ -30,9 +29,6 @@ export async function exportPkcs7CertificateChainBinary(params: {
     }),
     certificates,
   });
-  if (signer) {
-    signer(content);
-  }
   const contentInfo = new ContentInfo({
     contentType: id_ContentType_SignedData,
     content: content.toSchema(true),
