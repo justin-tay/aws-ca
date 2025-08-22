@@ -15,11 +15,8 @@ export async function handleSimpleEnroll(
       body: 'Method Not Allowed',
     };
   }
-
-  if (
-    headers['Content-Type'] !== 'application/pkcs10' &&
-    headers['content-type'] !== 'application/pkcs10'
-  ) {
+  const contentType = headers['Content-Type'] ?? headers['content-type'];
+  if (contentType !== 'application/pkcs10') {
     return {
       statusCode: 415,
       body: 'Unsupported Media Type',
