@@ -9,6 +9,7 @@ export async function initializeScepChallengePassword() {
   if (scepChallengePasswordParameterName) {
     const value = await loadParameter(scepChallengePasswordParameterName);
     if (value.Parameter?.Value === ' ') {
+      console.info('Initializing challenge password');
       saveParameter(scepChallengePasswordParameterName, crypto.randomUUID());
     }
   }
