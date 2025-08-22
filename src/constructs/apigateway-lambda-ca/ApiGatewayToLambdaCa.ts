@@ -129,7 +129,7 @@ export default class ApiGatewayToLambdaCa extends Construct {
       ...props.lambdaFunctionProps,
       memorySize: props.lambdaFunctionProps?.memorySize ?? DEFAULT_MEMORY_SIZE,
       timeout: props.lambdaFunctionProps?.timeout ?? DEFAULT_TIMEOUT,
-      runtime: Runtime.NODEJS_18_X,
+      runtime: Runtime.NODEJS_22_X,
       handler: 'handler.default',
       code: Code.fromAsset(
         join(__dirname, '../../../dist/assets/lambda/aws-ca'),

@@ -53,6 +53,7 @@ const baseHandler: Handler<
       body,
     };
   } catch (err) {
+    console.error(JSON.stringify(err));
     let body;
     if (err instanceof Error) {
       if (err.stack) {
