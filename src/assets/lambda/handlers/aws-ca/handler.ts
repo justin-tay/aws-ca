@@ -9,8 +9,12 @@ import { handleRevoke } from './handleRevoke';
 import { handleOcsp } from './handleOcsp';
 import { handleScep } from './handleScep';
 import { initializeNodeCryptoEngine } from './crypto/initializeNodeCryptoEngine';
+import { initializeScepChallengePassword } from './initializeScepChallengePassword';
 
 initializeNodeCryptoEngine();
+(async () => {
+  await initializeScepChallengePassword();
+})();
 
 const baseHandler: Handler<
   APIGatewayProxyEvent,

@@ -31,7 +31,9 @@ describe('handleOcsp', () => {
       body: 'MHYwdDBNMEswSTAJBgUrDgMCGgUABBR5oi5p32zhW5K9YuakulTMQ9Z0QAQU3q/4GkSgIFr+ZEP/0Ro1nioGax4CEBI/kiYIb5pKsKhpAoRTH4GiIzAhMB8GCSsGAQUFBzABAgQSBBDLUpCBdYLhN3YBg8cl8yxG',
       isBase64Encoded: true,
     };
-    await handleOcsp(event as any);
+    const result = await handleOcsp(event as any);
+    expect(result).toBeDefined();
+    expect(result.statusCode).toBe(200);
   });
 
   it('should handle get', async () => {
@@ -59,6 +61,8 @@ describe('handleOcsp', () => {
         stage: 'dev',
       },
     };
-    await handleOcsp(event as any);
+    const result = await handleOcsp(event as any);
+    expect(result).toBeDefined();
+    expect(result.statusCode).toBe(200);
   });
 });

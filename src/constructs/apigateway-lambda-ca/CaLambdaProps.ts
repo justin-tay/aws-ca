@@ -19,4 +19,5 @@ export interface CaLambdaProps {
   pepper?: string;
   secretsManagerKmsKeyId?: string;
   parameterKmsKeyId?: string;
+  scepChallengePasswordParameterName?: string;
 }

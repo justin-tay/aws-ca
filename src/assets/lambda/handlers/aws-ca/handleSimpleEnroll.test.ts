@@ -1,7 +1,5 @@
-import { Pkcs10CertificateRequest, X509Certificate } from '@peculiar/x509';
-import { importPkcs8PemPrivateKey } from './ca/importPkcs8PemPrivateKey';
+import { X509Certificate } from '@peculiar/x509';
 import { initializeNodeCryptoEngine } from './crypto/initializeNodeCryptoEngine';
-import { getConfig } from './ca/getConfig';
 import { handleSimpleEnroll } from './handleSimpleEnroll';
 
 const rootCaCertificate = `-----BEGIN CERTIFICATE-----
@@ -196,6 +194,7 @@ describe('handleSimpleEnroll', () => {
       body: base64csr,
       isBase64Encoded: true,
     };
-    await handleSimpleEnroll(event as any);
+    const result = await handleSimpleEnroll(event as any);
+    expect(result).toBeDefined();
   });
 });

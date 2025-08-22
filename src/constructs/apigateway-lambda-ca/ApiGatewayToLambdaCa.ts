@@ -59,6 +59,8 @@ export default class ApiGatewayToLambdaCa extends Construct {
 
   public readonly distribution?: Distribution;
 
+  public readonly scepChallengePasswordParameter?: StringParameter;
+
   constructor(
     scope: Construct,
     id: string,
@@ -106,6 +108,18 @@ export default class ApiGatewayToLambdaCa extends Construct {
         userPassword: true,
       },
     });
+
+    const scepChallengePasswordParameterName =
+      props.caLambdaProps?.scepChallengePasswordParameterName ??
+      '/prod/aws-ca/scep/challenge-password';
+    this.scepChallengePasswordParameter = new StringParameter(
+      this,
+      'ScepChallengePasswordParameter',
+      {
+        parameterName: scepChallengePasswordParameterName,
+        stringValue: ' ', // does not allow empty string
+      },
+    );
 
     const environment: { [key: string]: string } = getEnvironment(props);
 
@@ -242,7 +256,7 @@ export default class ApiGatewayToLambdaCa extends Construct {
           parameterName:
             props.caLambdaProps?.rootCaKeyParameterName ??
             '/prod/aws-ca/root-ca/key',
-          stringValue: 'initial', // does not allow empty string
+          stringValue: ' ', // does not allow empty string
         },
       );
 
@@ -250,7 +264,7 @@ export default class ApiGatewayToLambdaCa extends Construct {
         parameterName:
           props.caLambdaProps?.subCaKeyParameterName ??
           '/prod/aws-ca/sub-ca/key',
-        stringValue: 'initial', // does not allow empty string
+        stringValue: ' ', // does not allow empty string
       });
 
       this.apiGatewayToLambda.lambdaFunction.addToRolePolicy(
@@ -268,6 +282,21 @@ export default class ApiGatewayToLambdaCa extends Construct {
         }),
       );
     }
+
+    if (this.scepChallengePasswordParameter) {
+      this.apiGatewayToLambda.lambdaFunction.addToRolePolicy(
+        new PolicyStatement({
+          effect: Effect.ALLOW,
+          resources: [this.scepChallengePasswordParameter.parameterArn],
+          actions: [
+            'ssm:GetParameter',
+            'ssm:PutParameter',
+            'ssm:DeleteParameter',
+          ],
+        }),
+      );
+    }
+
     if (props.caLambdaProps?.rootCaCrlBucketName) {
       this.rootCaCrlBucket = new Bucket(this, 'RootCaCrlBucket', {
         bucketName: props.caLambdaProps.rootCaCrlBucketName,
@@ -370,6 +399,10 @@ function getEnvironment(props: ApiGatewayToLambdaCaProps) {
   }
   if (props.caLambdaProps?.pepper) {
     environment.PEPPER = props.caLambdaProps.pepper;
+  }
+  if (props.caLambdaProps?.scepChallengePasswordParameterName) {
+    environment.SCEP_CHALLENGE_PASSWORD_PARAMETER_NAME =
+      props.caLambdaProps.scepChallengePasswordParameterName;
   }
   return environment;
 }

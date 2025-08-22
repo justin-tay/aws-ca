@@ -1,5 +1,5 @@
 import { X509Certificate } from '@peculiar/x509';
-import { exportPkcs7CertificateChainBinary } from './ca/exportPkcs7CertificateChainBinary';
+import { exportPkcs7CertificateChainBinary } from '../ca/exportPkcs7CertificateChainBinary';
 
 export async function getCACert(params: {
   certificateChain: X509Certificate[];
