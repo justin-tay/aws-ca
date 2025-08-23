@@ -217,7 +217,7 @@ export async function handleScep(
 
             const envelopedData = new EnvelopedData();
             envelopedData.addRecipientByCertificate(certificates[0]);
-            envelopedData.encrypt(encAlg, message); // Use the same encAlg as the request
+            await envelopedData.encrypt(encAlg, message); // Use the same encAlg as the request
             const envelopedDataContentInfo = new ContentInfo({
               contentType: id_ContentType_EnvelopedData,
               content: envelopedData.toSchema(),

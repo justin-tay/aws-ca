@@ -3,6 +3,7 @@ import { handleScep } from './handleScep';
 import { importPkcs8PemPrivateKey } from './ca/importPkcs8PemPrivateKey';
 import { getConfig } from './ca/getConfig';
 import { X509Certificate } from '@peculiar/x509';
+import { ContentInfo, EnvelopedData, SignedData } from 'pkijs';
 
 const rootCaCertificate = `-----BEGIN CERTIFICATE-----
 MIIDGzCCAgOgAwIBAgIQdOaCv2oWpVMZATZDoG0+4jANBgkqhkiG9w0BAQsFADAX
@@ -213,5 +214,19 @@ describe('handleScep', () => {
     const result = await handleScep(event as any);
     expect(result).toBeDefined();
     expect(result.statusCode).toBe(200);
+
+    const content = Buffer.from(result.body, 'base64');
+    const pkiMessage = ContentInfo.fromBER(content);
+    const signedData = new SignedData({ schema: pkiMessage.content });
+    await signedData.verify({ signer: 0 });
+    if (signedData.encapContentInfo.eContent) {
+      const pkcsPKIEnvelope = ContentInfo.fromBER(
+        signedData.encapContentInfo.eContent.getValue(),
+      );
+      const envelopedData = new EnvelopedData({
+        schema: pkcsPKIEnvelope.content,
+      });
+      expect(envelopedData).toBeDefined();
+    }
   });
 });
