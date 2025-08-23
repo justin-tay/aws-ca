@@ -248,9 +248,7 @@ export async function handleScep(
             await signedData.sign(privateKey, 0, 'SHA-256');
             const contentInfo = new ContentInfo({
               contentType: id_ContentType_SignedData,
-              content: new OctetString({
-                valueHex: signedData.toSchema().toBER(),
-              }),
+              content: signedData.toSchema(),
             });
             const content = contentInfo.toSchema().toBER();
             return {
