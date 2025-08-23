@@ -211,35 +211,6 @@ export async function handleScep(
                 attributes: signedAttrs,
               }),
             });
-            signedAttrs.push(
-              new Attribute({
-                type: transactionIDAttribute?.type,
-                values: transactionIDAttribute?.values,
-              }),
-            );
-            signedAttrs.push(
-              new Attribute({
-                type: messageTypeAttribute?.type,
-                values: messageTypeAttribute?.values,
-              }),
-            );
-            signedAttrs.push(
-              new Attribute({
-                type: id_Attributes_PkiStatus,
-                values: [
-                  new PrintableString({
-                    value: ScepPkiStatus.SUCCESS,
-                  }),
-                ],
-              }),
-            );
-            signedAttrs.push(
-              new Attribute({
-                type: id_Attributes_RecipientNonce,
-                values: senderNonceAttribute?.values,
-              }),
-            );
-
             const message = await exportPkcs7CertificateChainBinary({
               certificateChain,
             });
@@ -259,6 +230,24 @@ export async function handleScep(
               certificates,
               signerInfos: [signerInfo],
             });
+            // Attributes in SET must be ordered according to DER rules
+            // see https://github.com/PeculiarVentures/PKI.js/issues/402
+            signedAttrs.push(
+              new Attribute({
+                type: id_Attributes_PkiStatus,
+                values: [
+                  new PrintableString({
+                    value: ScepPkiStatus.SUCCESS,
+                  }),
+                ],
+              }),
+            );
+            signedAttrs.push(
+              new Attribute({
+                type: messageTypeAttribute?.type,
+                values: messageTypeAttribute?.values,
+              }),
+            );
             signedAttrs.push(
               new Attribute({
                 type: id_CMSAttributes_ContentType,
@@ -271,6 +260,12 @@ export async function handleScep(
                 values: [new UTCTime({ valueDate: new Date() })],
               }),
             );
+            signedAttrs.push(
+              new Attribute({
+                type: id_Attributes_RecipientNonce,
+                values: senderNonceAttribute?.values,
+              }),
+            );
             const hashAlgorithm = 'SHA-256';
             const messageDigest = await crypto.digest(
               { name: hashAlgorithm },
@@ -280,6 +275,12 @@ export async function handleScep(
               new Attribute({
                 type: id_CMSAttributes_MessageDigest,
                 values: [new OctetString({ valueHex: messageDigest })],
+              }),
+            );
+            signedAttrs.push(
+              new Attribute({
+                type: transactionIDAttribute?.type,
+                values: transactionIDAttribute?.values,
               }),
             );
             await signedData.sign(privateKey, 0, hashAlgorithm);
