@@ -5,7 +5,6 @@ import { exportPkcs7CertificateChainBinary } from './ca/exportPkcs7CertificateCh
 import {
   Attribute,
   Certificate,
-  CertificateSetItem,
   ContentInfo,
   EncapsulatedContentInfo,
   EnvelopedData,
@@ -18,7 +17,13 @@ import {
   SignedData,
   SignerInfo,
 } from 'pkijs';
-import { OctetString, PrintableString, fromBER } from 'asn1js';
+import {
+  OctetString,
+  PrintableString,
+  ObjectIdentifier,
+  UTCTime,
+  fromBER,
+} from 'asn1js';
 import { loadSubCa } from './ca/loadSubCa';
 import { Pkcs10CertificateRequest } from '@peculiar/x509';
 import { issueCertificate } from './ca/issueCertificate';
@@ -30,6 +35,9 @@ import {
   id_Attributes_RecipientNonce,
   id_Attributes_SenderNonce,
   id_Attributes_TransactionID,
+  id_CMSAttributes_ContentType,
+  id_CMSAttributes_MessageDigest,
+  id_CMSAttributes_SigningTime,
 } from './scep/ObjectIdentifiers';
 import { ScepPkiStatus } from './scep/ScepPkiStatus';
 
@@ -191,7 +199,7 @@ export async function handleScep(
                 }),
               );
             });
-
+            const signedAttrs: Attribute[] = [];
             const signerInfo = new SignerInfo({
               version: 1,
               sid: new IssuerAndSerialNumber({
@@ -200,30 +208,37 @@ export async function handleScep(
               }),
               signedAttrs: new SignedAndUnsignedAttributes({
                 type: 0,
-                attributes: [
-                  new Attribute({
-                    type: transactionIDAttribute?.type,
-                    values: transactionIDAttribute?.values,
-                  }),
-                  new Attribute({
-                    type: messageTypeAttribute?.type,
-                    values: messageTypeAttribute?.values,
-                  }),
-                  new Attribute({
-                    type: id_Attributes_PkiStatus,
-                    values: [
-                      new PrintableString({
-                        value: ScepPkiStatus.SUCCESS,
-                      }),
-                    ],
-                  }),
-                  new Attribute({
-                    type: id_Attributes_RecipientNonce,
-                    values: senderNonceAttribute?.values,
+                attributes: signedAttrs,
+              }),
+            });
+            signedAttrs.push(
+              new Attribute({
+                type: transactionIDAttribute?.type,
+                values: transactionIDAttribute?.values,
+              }),
+            );
+            signedAttrs.push(
+              new Attribute({
+                type: messageTypeAttribute?.type,
+                values: messageTypeAttribute?.values,
+              }),
+            );
+            signedAttrs.push(
+              new Attribute({
+                type: id_Attributes_PkiStatus,
+                values: [
+                  new PrintableString({
+                    value: ScepPkiStatus.SUCCESS,
                   }),
                 ],
               }),
-            });
+            );
+            signedAttrs.push(
+              new Attribute({
+                type: id_Attributes_RecipientNonce,
+                values: senderNonceAttribute?.values,
+              }),
+            );
 
             const message = await exportPkcs7CertificateChainBinary({
               certificateChain,
@@ -232,20 +247,42 @@ export async function handleScep(
             const envelopedData = new EnvelopedData();
             envelopedData.addRecipientByCertificate(certificates[0]);
             envelopedData.encrypt(encAlg, message); // Use the same encAlg as the request
-
+            const toBeSigned = envelopedData.toSchema().toBER();
             const signedData = new SignedData({
               version: 1,
               encapContentInfo: new EncapsulatedContentInfo({
                 eContentType: id_ContentType_Data, // "data" content type
                 eContent: new OctetString({
-                  valueHex: envelopedData.toSchema().toBER(),
+                  valueHex: toBeSigned,
                 }),
               }),
               certificates,
               signerInfos: [signerInfo],
             });
-
-            await signedData.sign(privateKey, 0, 'SHA-256');
+            signedAttrs.push(
+              new Attribute({
+                type: id_CMSAttributes_ContentType,
+                values: [new ObjectIdentifier({ value: id_ContentType_Data })],
+              }),
+            );
+            signedAttrs.push(
+              new Attribute({
+                type: id_CMSAttributes_SigningTime,
+                values: [new UTCTime({ valueDate: new Date() })],
+              }),
+            );
+            const hashAlgorithm = 'SHA-256';
+            const messageDigest = await crypto.digest(
+              { name: hashAlgorithm },
+              new Uint8Array(toBeSigned),
+            );
+            signedAttrs.push(
+              new Attribute({
+                type: id_CMSAttributes_MessageDigest,
+                values: [new OctetString({ valueHex: messageDigest })],
+              }),
+            );
+            await signedData.sign(privateKey, 0, hashAlgorithm);
             const contentInfo = new ContentInfo({
               contentType: id_ContentType_SignedData,
               content: signedData.toSchema(),

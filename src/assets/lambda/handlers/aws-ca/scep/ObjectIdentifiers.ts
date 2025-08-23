@@ -4,3 +4,7 @@ export const id_Attributes_PkiStatus = '2.16.840.1.113733.1.9.3'; // {id-attribu
 export const id_Attributes_FailInfo = '2.16.840.1.113733.1.9.4'; // {id-attributes failInfo(4)}
 export const id_Attributes_SenderNonce = '2.16.840.1.113733.1.9.5'; // {id-attributes senderNonce(5)}
 export const id_Attributes_RecipientNonce = '2.16.840.1.113733.1.9.6'; // {id-attributes recipientNonce(6)}
+
+export const id_CMSAttributes_ContentType = '1.2.840.113549.1.9.3'; // { pkcs-9 3 }
+export const id_CMSAttributes_SigningTime = '1.2.840.113549.1.9.5'; // { pkcs-9 5 }
+export const id_CMSAttributes_MessageDigest = '1.2.840.113549.1.9.4'; // { pkcs-9 4 }
