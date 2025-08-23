@@ -222,7 +222,7 @@ export async function handleScep(
               }),
             });
             const message = await exportPkcs7CertificateChainBinary({
-              certificateChain,
+              certificateChain: certificateResult,
             });
             const envelopedData = new EnvelopedData();
             envelopedData.addRecipientByCertificate(senderCertificate);
@@ -247,18 +247,20 @@ export async function handleScep(
             // see https://github.com/PeculiarVentures/PKI.js/issues/402
             signedAttrs.push(
               new Attribute({
+                type: id_Attributes_MessageType,
+                values: [
+                  new PrintableString({ value: ScepMessageType.CertRep }),
+                ],
+              }),
+            );
+            signedAttrs.push(
+              new Attribute({
                 type: id_Attributes_PkiStatus,
                 values: [
                   new PrintableString({
                     value: ScepPkiStatus.SUCCESS,
                   }),
                 ],
-              }),
-            );
-            signedAttrs.push(
-              new Attribute({
-                type: messageTypeAttribute?.type,
-                values: messageTypeAttribute?.values,
               }),
             );
             signedAttrs.push(
