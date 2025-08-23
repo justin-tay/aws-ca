@@ -145,6 +145,16 @@ export async function handleScep(
       signedData.signerInfos[0].signedAttrs?.attributes.find(
         (attribute) => attribute.type === id_Attributes_TransactionID,
       );
+    if (!signedData.certificates) {
+      return {
+        statusCode: 400,
+        body: 'signedData certificates must be included',
+      };
+    }
+    // Need to encrypt the response with the sender certificate
+    const senderCertificate = new Certificate({
+      schema: signedData.certificates[0].toSchema(),
+    });
     const messageType = messageTypeAttribute.values[0].getValue();
     if (signedData.encapContentInfo.eContent) {
       const subCa = await loadSubCa();
@@ -214,9 +224,8 @@ export async function handleScep(
             const message = await exportPkcs7CertificateChainBinary({
               certificateChain,
             });
-
             const envelopedData = new EnvelopedData();
-            envelopedData.addRecipientByCertificate(certificates[0]);
+            envelopedData.addRecipientByCertificate(senderCertificate);
             await envelopedData.encrypt(encAlg, message); // Use the same encAlg as the request
             const envelopedDataContentInfo = new ContentInfo({
               contentType: id_ContentType_EnvelopedData,
