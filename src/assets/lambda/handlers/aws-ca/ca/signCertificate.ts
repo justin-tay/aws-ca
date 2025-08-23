@@ -110,6 +110,12 @@ export async function signCertificate(
           true,
         ),
       );
+      extensions.push(
+        new ExtendedKeyUsageExtension(
+          [ExtendedKeyUsage.serverAuth, ExtendedKeyUsage.clientAuth],
+          false,
+        ),
+      );
       if (crlDistributionPoint) {
         const crlDistributionPoints = new CRLDistributionPoints([
           new DistributionPoint({
@@ -131,7 +137,7 @@ export async function signCertificate(
         );
       }
       if (ocsp) {
-        extensions.push(new AuthorityInfoAccessExtension({ ocsp }));
+        extensions.push(new AuthorityInfoAccessExtension({ ocsp }, false));
       }
       break;
     case 'client':
