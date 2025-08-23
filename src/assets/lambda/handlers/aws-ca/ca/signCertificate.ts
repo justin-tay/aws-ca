@@ -105,6 +105,7 @@ export async function signCertificate(
       extensions.push(
         new KeyUsagesExtension(
           KeyUsageFlags.digitalSignature |
+            KeyUsageFlags.keyEncipherment |
             KeyUsageFlags.keyCertSign |
             KeyUsageFlags.cRLSign,
           true,
