@@ -99,15 +99,22 @@ export async function signCertificate(
     ],
   };
   const extensions = certParams.extensions || [];
+  let usages: KeyUsageFlags;
   switch (profile) {
     case 'certificate_authority':
+      if (certParams.signingAlgorithm?.name === 'RSASSA-PKCS1-v1_5') {
+        usages = KeyUsageFlags.digitalSignature |
+        KeyUsageFlags.keyEncipherment |
+        KeyUsageFlags.keyCertSign |
+        KeyUsageFlags.cRLSign
+      } else {
+        usages = KeyUsageFlags.digitalSignature |
+        KeyUsageFlags.keyCertSign |
+        KeyUsageFlags.cRLSign;
+      }
       extensions.push(new BasicConstraintsExtension(true, undefined, true));
       extensions.push(
-        new KeyUsagesExtension(
-          KeyUsageFlags.digitalSignature |
-            KeyUsageFlags.keyEncipherment |
-            KeyUsageFlags.keyCertSign |
-            KeyUsageFlags.cRLSign,
+        new KeyUsagesExtension(usages,
           true,
         ),
       );
