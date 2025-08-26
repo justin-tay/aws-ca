@@ -79,7 +79,7 @@ export async function handleScep(
     };
   }
   if (operation === 'GetCACaps') {
-    const caps = 'AES\r\nPOSTPKIOperation\r\nSCEPStandard\r\nSHA-256';
+    const caps = 'AES\nPOSTPKIOperation\nSCEPStandard\nSHA-256';
     return {
       headers: {
         'Content-Type': 'text/plain',
@@ -89,6 +89,11 @@ export async function handleScep(
       body: caps,
     };
   } else if (operation === 'GetCACert') {
+    const certificateChain = await loadCertificateChain({
+      issuerName: getConfig().subCaName,
+    });
+    return await getCACert({ certificateChain: [certificateChain[0]] });
+  } else if (operation === 'GetCACertChain') {
     const certificateChain = await loadCertificateChain({
       issuerName: getConfig().subCaName,
     });

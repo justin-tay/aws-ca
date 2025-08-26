@@ -150,6 +150,7 @@ export default class NodeCryptoEngine extends pkijs.CryptoEngine {
    * Specialized function encrypting "EncryptedContentInfo" object using parameters
    * @param parameters
    */
+  /*
   public override async encryptEncryptedContentInfo(
     parameters: NodeCryptoEngineEncryptParams,
   ): Promise<pkijs.EncryptedContentInfo> {
@@ -271,10 +272,29 @@ export default class NodeCryptoEngine extends pkijs.CryptoEngine {
     });
     //#endregion
 
+    let algorithm = parameters.contentEncryptionAlgorithm.name;
+    let length = (parameters.contentEncryptionAlgorithm as AesKeyAlgorithm)
+      .length;
+    if (algorithm === 'AES-CBC') {
+      if (length === 128) {
+        algorithm = 'AES-128-CBC';
+        length = 16;
+      } else if (length === 192) {
+        algorithm = 'AES-192-CBC';
+        length = 24;
+      } else if (length === 256) {
+        algorithm = 'AES-256-CBC';
+        length = 32;
+      } else {
+        algorithm = 'AES-256-CBC';
+        length = 32;
+      }
+    }
+
     // Encrypt data using PBKDF2 as a source for key
     const encryptedContent = await nodeCrypto.encryptUsingPBKDF2Password(
-      parameters.contentEncryptionAlgorithm.name,
-      (parameters.contentEncryptionAlgorithm as AesKeyAlgorithm).length,
+      algorithm,
+      length,
       parameters.password,
       saltBuffer,
       parameters.iterationCount,
@@ -309,7 +329,7 @@ export default class NodeCryptoEngine extends pkijs.CryptoEngine {
     return encryptedContentInfo;
     //#endregion
   }
-
+*/
   /**
    * Decrypt data stored in "EncryptedContentInfo" object using parameters
    * @param parameters
