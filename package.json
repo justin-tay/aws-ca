@@ -17,6 +17,9 @@
     "cdk:destroy": "cdk destroy"
   },
   "dependencies": {
+    "@peculiar/asn1-schema": "^2.10.0",
+    "@peculiar/asn1-x509": "^2.10.0",
+    "@peculiar/x509": "^1.14.3",
     "aws-cdk-lib": "^2.272.0",
     "constructs": "^10.5.0"
   },

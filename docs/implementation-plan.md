@@ -104,6 +104,26 @@ An in-memory local `Signer` for tests.
 hundred entries exceeds that. The `Signer` must hash locally and use
 `MessageType: DIGEST` for CRLs (design section 13 notes this).
 
+**Status: done.** `src/ca`: `Signer`, local keys, the `RemoteKey` and
+`remoteCrypto` adapter, `issueCertificate` and `createRootCa`, `parseCsr`,
+`buildCrl`, serials and PEM helpers. 167 tests including OpenSSL conformance
+(ECDSA P-256/384/521 and RSA 2048). Notes for later slices:
+
+- `issueCertificate` takes explicit subject, names and lifetimes. Policy
+  (CN pinning, allowed suffixes, profile choice) belongs to slice 6.
+- CA certificates carry no extended key usage. An EKU on a CA acts as a chain
+  restriction in some validators (Windows applies it), so `main`'s serverAuth
+  and clientAuth on the CA is not carried over.
+- `Signer.sign` takes the message, not a digest. The KMS implementation must
+  hash locally and use `MessageType: DIGEST` once a CRL can exceed 4096 bytes.
+- Serials read back from a CRL include the leading `00` for high-bit values;
+  compare with `canonicalSerial`.
+- `parseCsr` normalises header-less base64 with line breaks (what EST clients
+  send), which the library alone does not accept.
+- The Windows CSR fixture is regenerated with `certreq` (ECDSA P-256, CNG).
+- `tsconfig.json` now includes the `dom` lib, because `@peculiar/x509`'s types
+  refer to `Crypto`, `CryptoKey` and `BufferSource`.
+
 ## Slice 3: key store backends (M)
 
 **Goal.** `CaKeyStore` with the three backends and the protection decorator.

@@ -290,6 +290,7 @@ Use:
 | -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
 | `aws-cdk-lib`, `constructs`                                                                                          | Everything needed is inside it.                                                |
 | `@peculiar/x509`                                                                                                     | Cert, CSR, CRL generation and parsing.                                         |
+| `@peculiar/asn1-x509`, `@peculiar/asn1-schema`                                                                       | The CRL number extension, which `@peculiar/x509` has no helper for.            |
 | `pkijs`, `asn1js`                                                                                                    | CMS `SignedData` and `EnvelopedData` (SCEP) and OCSP.                          |
 | `@aws-sdk/client-*` (`kms`, `ssm`, `secrets-manager`, `dynamodb`, `lib-dynamodb`, `s3`, `cognito-identity-provider`) | Per-service clients, external to the bundle (provided by the Node 24 runtime). |
 | `NodejsFunction` (esbuild)                                                                                           | Bundles at synth; removes the separate esbuild script.                         |
