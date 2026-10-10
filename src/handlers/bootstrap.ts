@@ -13,6 +13,7 @@ import {
 import type { ResolvedConfig } from '../config';
 import { CrlService, S3CrlStore } from '../crl';
 import { createLogger } from '../log';
+import { OperationalKeyService } from '../operational';
 import { KeyStoreError, KeyStoreRegistry, createEncryptionSecret, encryptionSecretName } from '../keystore';
 import { DynamoCaRepository, createDocumentClient } from '../repo';
 
@@ -83,28 +84,39 @@ const isScheduled = (event: CloudFormationCustomResourceEvent | ScheduledEvent):
 let scheduledConfig: ResolvedConfig | undefined;
 
 /**
- * The daily refresh of the root CA's CRL. The root key is not available to the API function, so
- * this function, which can use it, does it. It reads what it needs from its own environment.
+ * The daily maintenance: rotate the operational keys (only this function may create keys) and
+ * refresh the root CA's CRL (the root key is not available to the API function). It reads what it needs from its own environment.
  */
-async function refreshRootCrl(): Promise<void> {
+async function scheduledMaintenance(): Promise<void> {
   scheduledConfig ??= JSON.parse(process.env.CONFIG ?? '{}') as ResolvedConfig;
+  const repository = new DynamoCaRepository({
+    client: createDocumentClient(),
+    tableName: process.env.TABLE_NAME ?? '',
+  });
+  const keyStores = new KeyStoreRegistry({
+    ssm: new SSMClient({}),
+    secretsManager: new SecretsManagerClient({}),
+    kms: new KMSClient({}),
+    namePrefix: scheduledConfig.namePrefix,
+    ...(process.env.CUSTOMER_MANAGED_KEY_ARN
+      ? { customerManagedKeyArn: process.env.CUSTOMER_MANAGED_KEY_ARN }
+      : {}),
+  });
+  const logger = createLogger();
+  // Rotation first: the CRL run below is the one that fails the schedule loudly.
+  const outcomes = await new OperationalKeyService({
+    config: scheduledConfig,
+    repository,
+    keyStores,
+    logger,
+  }).ensureAll();
+  console.log(JSON.stringify({ message: 'operational keys', outcomes }));
   const crl = new CrlService({
     config: scheduledConfig,
-    repository: new DynamoCaRepository({
-      client: createDocumentClient(),
-      tableName: process.env.TABLE_NAME ?? '',
-    }),
-    keyStores: new KeyStoreRegistry({
-      ssm: new SSMClient({}),
-      secretsManager: new SecretsManagerClient({}),
-      kms: new KMSClient({}),
-      namePrefix: scheduledConfig.namePrefix,
-      ...(process.env.CUSTOMER_MANAGED_KEY_ARN
-        ? { customerManagedKeyArn: process.env.CUSTOMER_MANAGED_KEY_ARN }
-        : {}),
-    }),
+    repository,
+    keyStores,
     store: new S3CrlStore({ client: new S3Client({}), bucket: process.env.CRL_BUCKET ?? '' }),
-    logger: createLogger(),
+    logger,
   });
   const summary = await crl.refreshAll(['root']);
   if (summary.failed.length > 0) {
@@ -116,7 +128,7 @@ export const handler = async (
   event: CloudFormationCustomResourceEvent | ScheduledEvent,
 ): Promise<BootstrapResponse | undefined> => {
   if (isScheduled(event)) {
-    await refreshRootCrl();
+    await scheduledMaintenance();
     return undefined;
   }
   const properties = event.ResourceProperties as unknown as Properties;
@@ -137,6 +149,7 @@ export const handler = async (
 
   if (event.RequestType === 'Delete') {
     if (config.removalPolicy === 'destroy') {
+      const delegatedRemoved = await new OperationalKeyService({ config, repository, keyStores }).removeAll();
       const removed = await teardownCas({ config, keyStores, repository });
       await removeParameter(ssm, encryptionSecretName(config.namePrefix));
       await removeParameter(ssm, offlineRootKeyParameterName(config.namePrefix));
@@ -149,7 +162,7 @@ export const handler = async (
           await store.remove(label);
         }
       }
-      console.info(JSON.stringify({ message: 'removed CA keys', removed }));
+      console.info(JSON.stringify({ message: 'removed CA keys', removed, delegatedRemoved }));
     } else {
       console.info(JSON.stringify({ message: 'kept CA keys', reason: 'removalPolicy is retain' }));
     }
@@ -182,6 +195,15 @@ export const handler = async (
       rootKeyExported: result.rootKeyExported,
     }),
   );
+  // The delegated keys of each issuing CA (SCEP, OCSP): created here, rotated by the daily run.
+  const operational = await new OperationalKeyService({
+    config,
+    repository,
+    keyStores,
+    logger: createLogger(),
+  }).ensureAll();
+  console.info(JSON.stringify({ message: 'operational keys', outcomes: operational }));
+
   // A first CRL for every CA, so the CRL URLs work as soon as the stack does.
   const bucket = process.env.CRL_BUCKET;
   if (bucket !== undefined) {

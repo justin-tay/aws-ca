@@ -113,6 +113,11 @@ export class AwsCaStack extends Stack {
 
     // -- the runtime: serves requests, may use the issuing CAs' keys, never the root's
     const subLabels = config.subordinateCas.map((ca) => ca.label);
+    // Each issuing CA's delegated keys: the RSA key for SCEP and OCSP, and the OCSP signing KMS key.
+    const delegatedLabels = subLabels.flatMap((label) => [
+      ...(config.operationalKey ? [`${label}-ops`] : []),
+      ...(config.ocsp.enabled && config.ocsp.signing === 'kms' ? [`${label}-ocsp`] : []),
+    ]);
     const apiLogs = new LogGroup(this, 'ApiLogs', {
       retention: RetentionDays.ONE_YEAR,
       removalPolicy: removal,
@@ -128,7 +133,7 @@ export class AwsCaStack extends Stack {
       }),
     );
     for (const statement of [
-      ...keyAccessStatements(this, config, subLabels, 'runtime'),
+      ...keyAccessStatements(this, config, [...subLabels, ...delegatedLabels], 'runtime'),
       ...rootKeyDenyStatements(this, config),
       ...(encryptionKeyArns.length > 0 ? [customerManagedKeyStatement(encryptionKeyArns, 'runtime')] : []),
       new PolicyStatement({
@@ -221,7 +226,7 @@ export class AwsCaStack extends Stack {
     );
     const secretPath = `${config.namePrefix}/internal/*`.replace(/^\//, '');
     for (const statement of [
-      ...keyAccessStatements(this, config, ['root', ...subLabels], 'admin'),
+      ...keyAccessStatements(this, config, ['root', ...subLabels, ...delegatedLabels], 'admin'),
       ...(encryptionKeyArns.length > 0 ? [customerManagedKeyStatement(encryptionKeyArns, 'admin')] : []),
       new PolicyStatement({
         sid: 'InternalParameters',

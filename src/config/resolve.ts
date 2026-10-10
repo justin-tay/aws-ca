@@ -318,6 +318,10 @@ function resolveSubordinateCas(c: Collector, value: unknown, root: ResolvedRootC
       c.add(child(path, 'label'), 'Required.');
     } else if (label === 'root') {
       c.add(child(path, 'label'), '"root" is reserved for the root CA.');
+    } else if (label.endsWith('-ops') || label.endsWith('-ocsp')) {
+      c.add(child(path, 'label'), "Must not end in '-ops' or '-ocsp': those name a CA's delegated keys.");
+    } else if (label.length > 26) {
+      c.add(child(path, 'label'), 'At most 26 characters, so that the names of its delegated keys fit.');
     } else if (labels.has(label)) {
       c.add(child(path, 'label'), `Duplicate label "${label}".`);
     }

@@ -10,6 +10,14 @@ const KMS = 'arn:<AWS::Partition>:kms:<AWS::Region>:<AWS::AccountId>';
 /** Every wildcard the stack deliberately uses, and why. Anything not listed fails the test. */
 const ACKNOWLEDGED: { id: string; reason: string }[] = [
   {
+    id: `AwsSolutions::AwsSolutions-IAM5[Resource::${PARAMETER}/private-ca/ca/issuing-ops/*]`,
+    reason: 'The issuing CA’s delegated key (SCEP and OCSP) is created at deploy time under its own path.',
+  },
+  {
+    id: `AwsSolutions::AwsSolutions-IAM5[Resource::${SECRET}:private-ca/ca/issuing-ops/*]`,
+    reason: 'The issuing CA’s delegated key (SCEP and OCSP) is created at deploy time under its own name.',
+  },
+  {
     id: 'AwsSolutions::AwsSolutions-S1',
     reason:
       'The bucket holds only public CRLs, which are not secret; access logs would cost more than they show.',
@@ -116,6 +124,10 @@ describe('AWS Solutions cdk-nag', () => {
       ocsp: { signing: 'ca' },
     } as const;
     expect(synth(input as unknown as AwsCaConfigInput)).not.toThrow();
+  });
+
+  it('passes with OCSP signed by its own KMS key', () => {
+    expect(synth({ ocsp: { signing: 'kms' } } as unknown as AwsCaConfigInput)).not.toThrow();
   });
 
   it('passes with a customer managed key and an offline root', () => {

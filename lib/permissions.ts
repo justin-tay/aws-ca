@@ -8,12 +8,21 @@ const ROOT_LABEL = 'root';
 
 type Mode = 'runtime' | 'admin';
 
-const usesBackend = (
+/** Which of `labels` keep their key in `backend`. */
+const labelsIn = (
   config: ResolvedConfig,
   backend: 'parameter' | 'secret' | 'kms',
   labels: string[],
-): boolean =>
-  labels.some((label) => {
+): string[] =>
+  labels.filter((label) => {
+    // A CA's delegated keys: `<ca>-ops` (SCEP and OCSP, in the operational key store) and
+    // `<ca>-ocsp` (the dedicated KMS signing key).
+    if (label.endsWith('-ocsp')) {
+      return backend === 'kms';
+    }
+    if (label.endsWith('-ops')) {
+      return config.operationalKey?.keyStore.backend === backend;
+    }
     const store =
       label === ROOT_LABEL
         ? config.rootCa.keyStore
@@ -76,18 +85,21 @@ export function keyAccessStatements(
   const prefix = config.namePrefix;
   const admin = mode === 'admin';
 
-  if (usesBackend(config, 'parameter', labels)) {
+  const inParameters = labelsIn(config, 'parameter', labels);
+  const inSecrets = labelsIn(config, 'secret', labels);
+  const inKms = labelsIn(config, 'kms', labels);
+  if (inParameters.length > 0) {
     statements.push(
       new PolicyStatement({
         sid: 'CaKeyParameters',
         actions: admin
           ? ['ssm:GetParameter', 'ssm:PutParameter', 'ssm:DeleteParameter']
           : ['ssm:GetParameter'],
-        resources: labels.map((label) => parameterArn(stack, `${prefix}/ca/${label}/*`)),
+        resources: inParameters.map((label) => parameterArn(stack, `${prefix}/ca/${label}/*`)),
       }),
     );
   }
-  if (usesBackend(config, 'secret', labels)) {
+  if (inSecrets.length > 0) {
     statements.push(
       new PolicyStatement({
         sid: 'CaKeySecrets',
@@ -98,7 +110,7 @@ export function keyAccessStatements(
       }),
     );
   }
-  if (usesBackend(config, 'kms', labels)) {
+  if (inKms.length > 0) {
     statements.push(
       new PolicyStatement({
         sid: 'CaKeyKmsSign',
@@ -108,7 +120,7 @@ export function keyAccessStatements(
         resources: [keyArn(stack, '*')],
         conditions: {
           'ForAnyValue:StringLike': {
-            'kms:ResourceAliases': labels.flatMap((label) => aliasPatterns(label)),
+            'kms:ResourceAliases': inKms.flatMap((label) => aliasPatterns(label)),
           },
         },
       }),

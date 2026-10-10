@@ -389,6 +389,19 @@ describe('front door', () => {
   });
 });
 
+describe('CA labels and delegated keys', () => {
+  it.each(['issuing-ops', 'a-ocsp'])('rejects the label %s, which names a delegated key', (label) => {
+    const input = withValid({ subordinateCas: [{ label }] });
+    expect(issuesOf(input)).toEqual([expect.objectContaining({ path: 'subordinateCas[0].label' })]);
+  });
+
+  it('rejects a label too long for its delegated key names, and accepts the longest that fits', () => {
+    const tooLong = withValid({ subordinateCas: [{ label: 'a'.repeat(27) }] });
+    expect(issuesOf(tooLong)).toEqual([expect.objectContaining({ path: 'subordinateCas[0].label' })]);
+    expect(issuesOf(withValid({ subordinateCas: [{ label: 'a'.repeat(26) }] }))).toEqual([]);
+  });
+});
+
 describe('root key handling', () => {
   it('rejects an offline root in KMS, which cannot be exported', () => {
     const input = withValid({ rootCa: { keyHandling: 'offline', keyStore: { backend: 'kms' } } });

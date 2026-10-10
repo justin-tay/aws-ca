@@ -15,7 +15,7 @@ const CLOCK_SKEW_MS = 5 * 60 * 1000;
 const MAX_REQUEST_BYTES = 64 * 1024;
 
 export interface EstDependencies {
-  config: Pick<ResolvedConfig, 'subordinateCas' | 'groups' | 'policy' | 'lifetimes'>;
+  config: Pick<ResolvedConfig, 'subordinateCas' | 'groups' | 'policy' | 'lifetimes' | 'ocsp'>;
   repository: CaRepository;
   keyStores: KeyStoreProvider;
   authenticator: Authenticator;
@@ -182,7 +182,12 @@ export class EstServer {
         notBefore: new Date(now.getTime() - CLOCK_SKEW_MS),
         notAfter,
         subjectAltNames: decision.subjectAltNames,
-        ...(request.baseUrl === undefined ? {} : { crlUrls: [`${request.baseUrl}/crl/${ca.label}.crl`] }),
+        ...(request.baseUrl === undefined
+          ? {}
+          : {
+              crlUrls: [`${request.baseUrl}/crl/${ca.label}.crl`],
+              ...(this.deps.config.ocsp.enabled ? { ocspUrls: [`${request.baseUrl}/ocsp/${ca.label}`] } : {}),
+            }),
       });
       const serial = canonicalSerial(certificate.serialNumber);
       // Recorded before it is returned: a certificate nobody can find must never leave the CA.

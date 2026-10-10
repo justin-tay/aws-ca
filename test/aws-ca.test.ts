@@ -166,7 +166,13 @@ describe('the runtime role and the root key', () => {
       expect(secrets).toHaveLength(1);
       expect(mentions(secrets[0].Resource, 'secret:private-ca/ca/issuing/*')).toBe(true);
       expect(mentions(secrets[0].Resource, '/ca/root/')).toBe(false);
-      expect(runtime.some((s) => s.Sid === 'CaKeyParameters')).toBe(false);
+      // The operational key stays in Parameter Store by default, so the only parameters the runtime
+      // may read are the issuing CA's delegated ones.
+      const parameters = runtime.filter((s) => s.Sid === 'CaKeyParameters');
+      expect(parameters).toHaveLength(1);
+      expect(mentions(parameters[0].Resource, '/ca/issuing-ops/*')).toBe(true);
+      expect(mentions(parameters[0].Resource, '/ca/issuing/*')).toBe(false);
+      expect(mentions(parameters[0].Resource, '/ca/root/')).toBe(false);
     });
   });
 
@@ -309,6 +315,28 @@ describe('authentication and the endpoint', () => {
   it('reports the EST endpoint and the user pool', () => {
     const outputs = template.toJSON().Outputs as Record<string, unknown>;
     expect(Object.keys(outputs)).toEqual(expect.arrayContaining(['EstEndpoint', 'UserPoolId']));
+  });
+});
+
+describe('delegated keys', () => {
+  it('lets the runtime read the operational key but not create or delete one', () => {
+    const runtime = allows(statementsOf(stackFor(), 'api'));
+    const parameters = runtime.find((s) => s.Sid === 'CaKeyParameters');
+    expect(actionsOf(parameters as Statement)).toEqual(['ssm:GetParameter']);
+    expect(mentions(parameters?.Resource, '/ca/issuing-ops/*')).toBe(true);
+  });
+
+  it('lets the bootstrap, and only the bootstrap, create them', () => {
+    const bootstrap = allows(statementsOf(stackFor(), 'bootstrap')).find((s) => s.Sid === 'CaKeyParameters');
+    expect(mentions(bootstrap?.Resource, '/ca/issuing-ops/*')).toBe(true);
+    expect(actionsOf(bootstrap as Statement)).toContain('ssm:PutParameter');
+  });
+
+  it('adds the OCSP signing key’s alias when OCSP signs with its own KMS key', () => {
+    const stack = stackFor({ ocsp: { signing: 'kms' } });
+    const sign = allows(statementsOf(stack, 'api')).find((s) => s.Sid === 'CaKeyKmsSign');
+    expect(JSON.stringify(sign?.Condition)).toContain('alias/aws-ca/issuing-ocsp');
+    expect(JSON.stringify(sign?.Condition)).not.toContain('alias/aws-ca/root');
   });
 });
 

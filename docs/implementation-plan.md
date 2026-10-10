@@ -386,6 +386,39 @@ AIA in issued certs.
 - Rotation produces a new operational cert and the old one stops being used,
   with no OCSP gap (test with the fake clock).
 
+**Status: implemented; the deployed check is written but not yet run.**
+`src/operational`, `src/ocsp`. Notes for later slices (SCEP in particular):
+
+- A CA's delegated keys are stored under the labels `<ca>-ops` (the RSA
+  operational key: SCEP's decryption key, and the default OCSP signer) and
+  `<ca>-ocsp` (the dedicated KMS signing key of `ocsp.signing: 'kms'`). Their
+  certificates are in the existing operational-certificate records under those
+  labels, so no schema change. Config therefore rejects CA labels ending in
+  `-ops`/`-ocsp` and longer than 26 characters.
+- One operational key **per issuing CA**, certified by that CA (a delegated
+  responder must be issued by the CA it answers for). Profile: `id-kp-OCSPSigning`,
+  `id-kp-cmcRA`, `ocsp-nocheck`.
+- Only the bootstrap function creates keys: on every deployment (create or
+  update) and in its daily run, which also refreshes the root CRL. The runtime
+  only reads them. Rotation: within 30 days of expiry (or a third of the
+  lifetime if shorter) a new key and certificate are made, active at once; the
+  old is deactivated afterwards, so there is no gap, and the newest active
+  unexpired certificate is the one used. Concurrent creators: the sequence is
+  the arbiter and the loser deletes its own key.
+- Old operational keys are not deleted after rotation (one parameter per year
+  per CA); destroy with `removalPolicy: destroy` removes them all.
+- OCSP: `GET /ocsp/<ca>/<base64 request>` and `POST /ocsp/<ca>`, SHA-1 and
+  SHA-2 CertIDs, nonce echoed. A GET without a nonce is cacheable for
+  `ocsp.maxAgeSeconds`; everything else is `no-store`. A request for another
+  issuer is `unauthorized`, a serial not in the table is `unknown`, an expired but
+  present certificate is `good`. Before the first operational certificate exists
+  it answers `tryLater`.
+- Certificates issued by EST carry the OCSP URL (an AIA `ocsp` entry) when OCSP
+  is enabled, next to the CRL URL; `caIssuers` is not set.
+- IAM: the runtime gets read access to `<prefix>/ca/<ca>-ops/*` (and the
+  matching secret or KMS alias) and the permission statements are now narrowed
+  per backend.
+
 ## Slice 9: SCEP (L)
 
 **Goal.** SCEP against `jscep`, using the RSA operational key.

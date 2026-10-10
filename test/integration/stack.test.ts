@@ -12,7 +12,7 @@ import {
   CognitoIdentityProviderClient,
 } from '@aws-sdk/client-cognito-identity-provider';
 import { X509Certificate, X509Certificates, X509Crl } from '@peculiar/x509';
-import { clientKey, makeCsr } from '../ca/helpers';
+import { clientKey, hasOpenssl, makeCsr, openssl, workDir } from '../ca/helpers';
 import { DynamoCaRepository, createDocumentClient } from '../../src/repo';
 
 // Real AWS, and slow (minutes): deploys the whole stack with CloudFormation, checks what the
@@ -126,6 +126,11 @@ const region = process.env.AWS_REGION ?? 'ap-southeast-1';
 
     const cacerts = await fetch(`${endpoint}/issuing/cacerts`);
     expect(cacerts.status).toBe(200);
+    const caChain = [
+      ...new X509Certificates(
+        new Uint8Array(Buffer.from((await cacerts.text()).replaceAll(/s+/g, ''), 'base64')),
+      ),
+    ];
 
     const { keys } = await clientKey();
     const csr = (await makeCsr(`CN=${username}`, keys))
@@ -173,6 +178,51 @@ const region = process.env.AWS_REGION ?? 'ap-southeast-1';
         },
         body: JSON.stringify({ serialNumber, reason: 'keyCompromise' }),
       });
+    // OCSP: answered per request from the table, signed with the delegated certificate the
+    // bootstrap issued for the issuing CA. Skipped where OpenSSL is not installed.
+    const ocsp = async (expected: string): Promise<void> => {
+      if (!hasOpenssl) {
+        return;
+      }
+      const rootPem = caChain.map((certificate) => certificate.toString('pem')).join('');
+      const dir = workDir({
+        'leaf.pem': leaf.toString('pem'),
+        'issuing.pem': issuing.toString('pem'),
+        'chain.pem': rootPem,
+      });
+      expect(
+        openssl(
+          ['ocsp', '-issuer', 'issuing.pem', '-cert', 'leaf.pem', '-reqout', 'leaf.req', '-no_nonce'],
+          dir,
+        ).status,
+      ).toBe(0);
+      const answer = await fetch(`${base}/ocsp/issuing`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/ocsp-request' },
+        body: readFileSync(join(dir, 'leaf.req')),
+      });
+      expect(answer.status).toBe(200);
+      expect(answer.headers.get('content-type')).toBe('application/ocsp-response');
+      writeFileSync(join(dir, 'leaf.resp'), Buffer.from(await answer.arrayBuffer()));
+      const checked = openssl(
+        [
+          'ocsp',
+          '-respin',
+          'leaf.resp',
+          '-issuer',
+          'issuing.pem',
+          '-cert',
+          'leaf.pem',
+          '-CAfile',
+          'chain.pem',
+        ],
+        dir,
+      );
+      expect(checked.output).toContain(expected);
+      expect(checked.output).toContain('Response verify OK');
+    };
+    await ocsp('leaf.pem: good');
+
     expect((await revoke(password, 'abcdef0123456789')).status).toBe(404);
     const revoked = await revoke(password, leaf.serialNumber);
     expect(revoked.status).toBe(200);
@@ -180,6 +230,7 @@ const region = process.env.AWS_REGION ?? 'ap-southeast-1';
     const serials = (await crlOf('issuing')).entries.map((entry) => entry.serialNumber.replace(/^0+/, ''));
     expect(serials).toEqual([leaf.serialNumber.replace(/^0+/, '')]);
     expect((await revoke(password, leaf.serialNumber)).status).toBe(409);
+    await ocsp('leaf.pem: revoked');
   });
 
   it('adds a CA on update and leaves the existing ones alone', async () => {

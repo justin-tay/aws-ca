@@ -10,6 +10,8 @@ import { CrlService, S3CrlStore } from '../crl';
 import { EstServer } from '../est';
 import { originIsVerified, text, type HttpRequest, type HttpResponse } from '../http';
 import { KeyStoreRegistry } from '../keystore';
+import { OcspServer } from '../ocsp';
+import { OperationalKeyService } from '../operational';
 import { createLogger } from '../log';
 import { RevocationServer } from '../revocation';
 import { DynamoCaRepository, createDocumentClient } from '../repo';
@@ -45,6 +47,7 @@ export function toResult(response: HttpResponse): APIGatewayProxyStructuredResul
 interface Runtime {
   server: EstServer;
   revocation: RevocationServer;
+  ocsp: OcspServer;
   crl: CrlService;
   /** The issuing CAs: the root's key is not available here, so its CRL is refreshed elsewhere. */
   issuingLabels: string[];
@@ -85,12 +88,15 @@ function createRuntime(): Runtime {
   const crl = new CrlService({ config, repository, keyStores, store, logger });
   const server = new EstServer({ config, repository, keyStores, authenticator, logger });
   const revocation = new RevocationServer({ config, repository, authenticator, crl, store, logger });
+  const operational = new OperationalKeyService({ config, repository, keyStores, logger });
+  const ocsp = new OcspServer({ config, repository, operational, keyStores, logger });
 
   const parameter = process.env.ORIGIN_VERIFY_PARAMETER;
   let secret: Promise<string | undefined> | undefined;
   return {
     server,
     revocation,
+    ocsp,
     crl,
     issuingLabels: config.subordinateCas.map((ca) => ca.label),
     originSecret: () => {
@@ -144,6 +150,6 @@ export const handler = async (
   if (!originIsVerified(request.headers, await runtime.originSecret())) {
     return toResult(text(403, 'Forbidden.'));
   }
-  const revocation = await runtime.revocation.handle(request);
-  return toResult(revocation ?? (await runtime.server.handle(request)));
+  const routed = (await runtime.revocation.handle(request)) ?? (await runtime.ocsp.handle(request));
+  return toResult(routed ?? (await runtime.server.handle(request)));
 };
