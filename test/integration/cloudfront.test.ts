@@ -136,7 +136,13 @@ const send = (
     const crl = await fetch(`${revocation}/crl/issuing.crl`);
     expect(crl.status).toBe(200);
     expect(crl.headers.get('content-type')).toBe('application/pkix-crl');
-    expect((await fetch(`${revocation}/.well-known/est/issuing/cacerts`)).status).toBe(404);
+    // Over HTTP the other paths are refused outright (their behavior is HTTPS only); over HTTPS the
+    // function answers 404. Either way, nothing but CRL and OCSP is served by this distribution.
+    expect((await fetch(`${revocation}/.well-known/est/issuing/cacerts`)).status).toBe(403);
+    const secure = await fetch(
+      `${revocation.replace('http://', 'https://')}/.well-known/est/issuing/cacerts`,
+    );
+    expect(secure.status).toBe(404);
 
     // First enrollment by password, with no client certificate: mTLS is optional.
     const cognito = new CognitoIdentityProviderClient({ region });
