@@ -10,6 +10,16 @@ const KMS = 'arn:<AWS::Partition>:kms:<AWS::Region>:<AWS::AccountId>';
 /** Every wildcard the stack deliberately uses, and why. Anything not listed fails the test. */
 const ACKNOWLEDGED: { id: string; reason: string }[] = [
   {
+    id: 'AwsSolutions::AwsSolutions-COG2',
+    reason:
+      'Clients enroll over Basic authentication (USER_PASSWORD_AUTH), which cannot complete an MFA challenge.',
+  },
+  {
+    id: 'AwsSolutions::AwsSolutions-COG8',
+    reason:
+      'The Plus plan adds threat protection this CA does not use; the Lite and Essentials plans are the cost-conscious choice (design.md section 8).',
+  },
+  {
     id: 'AwsSolutions::AwsSolutions-IAM5[Resource::<TableCD117FA1.Arn>/index/*]',
     reason: 'Queries address the table’s own two secondary indexes, whose names are fixed in TABLE_SCHEMA.',
   },

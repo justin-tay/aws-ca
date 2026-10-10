@@ -8,10 +8,11 @@ import {
   Stack,
   type StackProps,
 } from 'aws-cdk-lib/core';
+import { AccountRecovery, FeaturePlan, Mfa, UserPool, UserPoolClient } from 'aws-cdk-lib/aws-cognito';
 import { AttributeType, BillingMode, ProjectionType, Table } from 'aws-cdk-lib/aws-dynamodb';
 import { Effect, PolicyStatement, Role, ServicePrincipal } from 'aws-cdk-lib/aws-iam';
 import { Key } from 'aws-cdk-lib/aws-kms';
-import { Architecture, Runtime } from 'aws-cdk-lib/aws-lambda';
+import { Architecture, FunctionUrlAuthType, Runtime } from 'aws-cdk-lib/aws-lambda';
 import { NodejsFunction, OutputFormat } from 'aws-cdk-lib/aws-lambda-nodejs';
 import { LogGroup, RetentionDays } from 'aws-cdk-lib/aws-logs';
 import { Provider } from 'aws-cdk-lib/custom-resources';
@@ -46,6 +47,8 @@ export class AwsCaStack extends Stack {
   public readonly bootstrap: CustomResource;
   /** The KMS key that encrypts stored CA keys under `customer-managed-key`, when this stack makes one. */
   public readonly customerManagedKey?: Key;
+  public readonly userPool: UserPool;
+  public readonly userPoolClient: UserPoolClient;
 
   constructor(scope: Construct, id: string, props: AwsCaStackProps) {
     const { config, ...stackProps } = props;
@@ -125,6 +128,42 @@ export class AwsCaStack extends Stack {
       this.apiRole.addToPolicy(statement);
     }
 
+    // -- authentication: admin-created Cognito users, Basic auth turned into InitiateAuth
+    this.userPool = new UserPool(this, 'UserPool', {
+      featurePlan: config.auth.cognitoTier === 'lite' ? FeaturePlan.LITE : FeaturePlan.ESSENTIALS,
+      selfSignUpEnabled: false,
+      signInAliases: { username: true },
+      mfa: Mfa.OFF,
+      accountRecovery: AccountRecovery.NONE,
+      passwordPolicy: {
+        minLength: 14,
+        requireLowercase: true,
+        requireUppercase: true,
+        requireDigits: true,
+        requireSymbols: true,
+      },
+      deletionProtection: config.removalPolicy === 'retain',
+      removalPolicy: removal,
+    });
+    for (const group of new Set([config.groups.client, config.groups.server, config.groups.admin])) {
+      this.userPool.addGroup(`Group${group}`, { groupName: group });
+    }
+    this.userPoolClient = this.userPool.addClient('EstClient', {
+      authFlows: { userPassword: true },
+      generateSecret: false,
+      preventUserExistenceErrors: true,
+      enableTokenRevocation: true,
+      idTokenValidity: Duration.minutes(5),
+      accessTokenValidity: Duration.minutes(5),
+      refreshTokenValidity: Duration.hours(1),
+    });
+
+    const apiConfig = JSON.stringify({ ...config, warnings: [] });
+    if (Buffer.byteLength(apiConfig) > 3000) {
+      throw new Error(
+        'The resolved configuration is too large to pass to the function as an environment variable.',
+      );
+    }
     this.apiFunction = new NodejsFunction(this, 'ApiFunction', {
       entry: join(__dirname, '../src/handlers/api.ts'),
       runtime: Runtime.NODEJS_24_X,
@@ -135,9 +174,13 @@ export class AwsCaStack extends Stack {
       environment: {
         TABLE_NAME: this.table.tableName,
         NAME_PREFIX: config.namePrefix,
+        CONFIG: apiConfig,
+        USER_POOL_CLIENT_ID: this.userPoolClient.userPoolClientId,
         ...(this.customerManagedKey ? { CUSTOMER_MANAGED_KEY_ARN: this.customerManagedKey.keyArn } : {}),
       },
     });
+    // Clients authenticate with Basic credentials that the function checks itself, so the URL is public.
+    const functionUrl = this.apiFunction.addFunctionUrl({ authType: FunctionUrlAuthType.NONE });
 
     // -- the bootstrap: creates the CAs, so it may use every key, root included
     const bootstrapLogs = new LogGroup(this, 'BootstrapLogs', {
@@ -188,6 +231,12 @@ export class AwsCaStack extends Stack {
 
     // -- outputs
     new CfnOutput(this, 'TableName', { value: this.table.tableName });
+    new CfnOutput(this, 'EstEndpoint', {
+      description: 'Base URL for EST, for example <this>/<ca>/simpleenroll',
+      value: `${functionUrl.url}.well-known/est`,
+    });
+    new CfnOutput(this, 'UserPoolId', { value: this.userPool.userPoolId });
+    new CfnOutput(this, 'UserPoolClientId', { value: this.userPoolClient.userPoolClientId });
     new CfnOutput(this, 'RootCaFingerprint', {
       description: 'SHA-256 fingerprint of the root CA certificate',
       value: this.bootstrap.getAttString('RootFingerprint'),

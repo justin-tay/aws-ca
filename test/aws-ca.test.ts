@@ -256,6 +256,62 @@ describe('customer-managed-key protection', () => {
   });
 });
 
+describe('authentication and the endpoint', () => {
+  const template = Template.fromStack(stackFor());
+
+  it('has an admin-only user pool on the Lite plan with no self sign-up', () => {
+    template.hasResourceProperties('AWS::Cognito::UserPool', {
+      UserPoolTier: 'LITE',
+      AdminCreateUserConfig: { AllowAdminCreateUserOnly: true },
+    });
+  });
+
+  it('has the three groups, named by the configuration', () => {
+    const names = Object.values(template.findResources('AWS::Cognito::UserPoolGroup')).map(
+      (group) => group.Properties.GroupName as string,
+    );
+    expect(names.toSorted()).toEqual(['est-admin', 'est-client', 'est-server']);
+  });
+
+  it('has an app client that allows password auth and has no secret', () => {
+    template.hasResourceProperties('AWS::Cognito::UserPoolClient', {
+      ExplicitAuthFlows: Match.arrayWith(['ALLOW_USER_PASSWORD_AUTH']),
+      GenerateSecret: false,
+      PreventUserExistenceErrors: 'ENABLED',
+    });
+  });
+
+  it('exposes the API through a Function URL, which checks credentials itself', () => {
+    template.hasResourceProperties('AWS::Lambda::Url', { AuthType: 'NONE' });
+  });
+
+  it('gives the API function what it needs to authenticate and serve', () => {
+    const functions = template.findResources('AWS::Lambda::Function');
+    const api = Object.values(functions).find((fn) =>
+      mentions(fn.Properties.Environment, 'USER_POOL_CLIENT_ID'),
+    );
+    const variables = api?.Properties.Environment.Variables as Record<string, unknown>;
+    expect(Object.keys(variables)).toEqual(
+      expect.arrayContaining(['CONFIG', 'TABLE_NAME', 'NAME_PREFIX', 'USER_POOL_CLIENT_ID']),
+    );
+    expect(JSON.parse(variables.CONFIG as string)).toMatchObject({ groups: { client: 'est-client' } });
+  });
+
+  it('does not need to be allowed to call Cognito: InitiateAuth is unauthenticated', () => {
+    const stack = stackFor();
+    expect(
+      allows(statementsOf(stack, 'api'))
+        .flatMap(actionsOf)
+        .filter((action) => action.startsWith('cognito')),
+    ).toEqual([]);
+  });
+
+  it('reports the EST endpoint and the user pool', () => {
+    const outputs = template.toJSON().Outputs as Record<string, unknown>;
+    expect(Object.keys(outputs)).toEqual(expect.arrayContaining(['EstEndpoint', 'UserPoolId']));
+  });
+});
+
 describe('outputs and warnings', () => {
   it('reports the table and the root fingerprint', () => {
     const template = Template.fromStack(stackFor());

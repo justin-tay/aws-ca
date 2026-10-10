@@ -138,6 +138,11 @@ used only to issue leaf certs and sign CRLs.
 - `client` profile: configurable `subjectTemplate`; CN is pinned to the
   authenticated username by default.
 - SCEP issues the `client` profile only, gated by the challenge password.
+- EST infers the profile from the request: DNS or IP names make it a `server`
+  request, anything else `client`. The user must be in that profile's group.
+  The certificate's subject and names come from policy, never from the CSR.
+- `simplereenroll` additionally requires a current certificate for the same
+  subject from the same CA (owner index; eventually consistent).
 
 ### 7. Front door
 

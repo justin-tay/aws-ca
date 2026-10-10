@@ -236,7 +236,11 @@ Root key access; runtime role without it; stack outputs.
 **Risks.** Custom-resource timeouts and rollback behaviour; the `offline`
 export path needs a clear one-time output that is not logged to CloudWatch.
 
-**Status: done; the real deployment test is written but not yet run.**
+**Status: done, verified against real AWS.** The deployment test found that a
+policy widened in the same deployment is not yet effective when the bootstrap
+runs (IAM is eventually consistent), so the handler retries `AccessDenied` for
+up to 150 seconds.
+
 `src/bootstrap` (`bootstrapCas`, `teardownCas`), `src/handlers/bootstrap.ts`,
 `lib/aws-ca-stack.ts`, `lib/permissions.ts`. 365 unit tests, including a
 synth test that the runtime role has no path to the root key, and `cdk synth`
@@ -282,6 +286,37 @@ content-type handling; redacting logger.
 
 **Risks.** The `Authorization` header and `x-origin-verify` handling must be in
 place before any front door other than `function-url` exists.
+
+**Status: implemented; the deployed check (`npm run test:aws -- --yes stack`)
+and the Windows checklist (`docs/windows-enrollment.md`) are not yet run.**
+`src/est`, `src/auth`, `src/policy`, `src/http`, `src/log.ts`,
+`src/handlers/api.ts`. Decisions and things later slices should know:
+
+- Paths: `/.well-known/est/<ca>/<operation>` (RFC 7030's label is the CA label)
+  and `/est/<ca>/<operation>`; the label may be omitted, which means the first
+  subordinate CA.
+- The profile is inferred from the request: DNS or IP names make it a `server`
+  request, otherwise `client`. The user must be in that profile's group and the
+  CA must list the profile. What goes in the certificate comes from policy,
+  never from the CSR subject: the template with the user name for a client, the
+  first DNS name (all names checked against `allowedDomainSuffixes`) for a server.
+  A CSR CN that disagrees is refused rather than silently replaced.
+- IP, email and URI names are refused for servers and ignored for clients.
+- `simplereenroll` is the same policy plus: the user must already hold a
+  current certificate for the same subject from this CA (read from the owner
+  index, so a certificate issued seconds ago may not count yet). mTLS
+  reenrollment arrives with the front doors in slice 10.
+- Responses are PKCS#7 certs-only: leaf and issuing CA for enrollment, the whole
+  chain for `cacerts`.
+- The issued certificate is stored before it is returned.
+- `x-origin-verify` is checked first when `ORIGIN_VERIFY_PARAMETER` is set, and
+  fails closed if the parameter cannot be read; the stack does not set it until
+  slice 10.
+- The API function gets the resolved configuration in the `CONFIG` environment
+  variable (the stack refuses a configuration over 3000 bytes: Lambda allows
+  4 KB of environment in total). Revisit if configs grow: read it from a parameter.
+- cdk-nag: COG2 (MFA) and COG8 (Plus plan) are acknowledged with reasons; the
+  password policy requires 14 characters with symbols.
 
 ## Slice 7: revocation and CRL (M)
 

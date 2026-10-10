@@ -5,7 +5,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DescribeTableCommand, DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { GetParameterCommand, GetParametersByPathCommand, SSMClient } from '@aws-sdk/client-ssm';
-import { X509Certificate } from '@peculiar/x509';
+import {
+  AdminAddUserToGroupCommand,
+  AdminCreateUserCommand,
+  AdminSetUserPasswordCommand,
+  CognitoIdentityProviderClient,
+} from '@aws-sdk/client-cognito-identity-provider';
+import { X509Certificate, X509Certificates } from '@peculiar/x509';
+import { clientKey, makeCsr } from '../ca/helpers';
 import { DynamoCaRepository, createDocumentClient } from '../../src/repo';
 
 // Real AWS, and slow (minutes): deploys the whole stack with CloudFormation, checks what the
@@ -95,6 +102,52 @@ const region = process.env.AWS_REGION ?? 'ap-southeast-1';
       expect(parameter.Parameter?.Type).toBe('SecureString');
     }
     expect(await parametersUnderPrefix()).toContain(`${prefix}/internal/encryption-secret`);
+  });
+
+  it('enrolls a client certificate over EST with Basic authentication', async () => {
+    const { UserPoolId: userPoolId, EstEndpoint: endpoint } = outputs();
+    const cognito = new CognitoIdentityProviderClient({ region });
+    const username = 'it-user';
+    const password = `Aa1!${randomBytes(12).toString('hex')}`;
+    await cognito.send(
+      new AdminCreateUserCommand({ UserPoolId: userPoolId, Username: username, MessageAction: 'SUPPRESS' }),
+    );
+    await cognito.send(
+      new AdminSetUserPasswordCommand({
+        UserPoolId: userPoolId,
+        Username: username,
+        Password: password,
+        Permanent: true,
+      }),
+    );
+    await cognito.send(
+      new AdminAddUserToGroupCommand({ UserPoolId: userPoolId, Username: username, GroupName: 'est-client' }),
+    );
+
+    const cacerts = await fetch(`${endpoint}/issuing/cacerts`);
+    expect(cacerts.status).toBe(200);
+
+    const { keys } = await clientKey();
+    const csr = (await makeCsr(`CN=${username}`, keys))
+      .replaceAll(/-----(BEGIN|END) CERTIFICATE REQUEST-----/g, '')
+      .replaceAll(/s+/g, '');
+    const enroll = (secret: string): Promise<Response> =>
+      fetch(`${endpoint}/issuing/simpleenroll`, {
+        method: 'POST',
+        headers: {
+          authorization: `Basic ${Buffer.from(`${username}:${secret}`).toString('base64')}`,
+          'content-type': 'application/pkcs10',
+        },
+        body: csr,
+      });
+
+    expect((await enroll('wrong-Password1!')).status).toBe(401);
+    const response = await enroll(password);
+    expect(response.status).toBe(200);
+    const bytes = Buffer.from((await response.text()).replaceAll(/s+/g, ''), 'base64');
+    const [leaf, issuing] = [...new X509Certificates(new Uint8Array(bytes))];
+    expect(leaf.subject).toBe(`CN=${username}`);
+    expect(await leaf.verify({ publicKey: issuing, signatureOnly: true })).toBe(true);
   });
 
   it('adds a CA on update and leaves the existing ones alone', async () => {
