@@ -287,8 +287,9 @@ content-type handling; redacting logger.
 **Risks.** The `Authorization` header and `x-origin-verify` handling must be in
 place before any front door other than `function-url` exists.
 
-**Status: implemented; the deployed check (`npm run test:aws -- --yes stack`)
-and the Windows checklist (`docs/windows-enrollment.md`) are not yet run.**
+**Status: done and verified against real AWS (deploy, `cacerts`, Basic auth 401 then
+200 enrollment through the Function URL and a real Cognito user, destroy). The
+Windows checklist (`docs/windows-enrollment.md`) is still to be run by hand.**
 `src/est`, `src/auth`, `src/policy`, `src/http`, `src/log.ts`,
 `src/handlers/api.ts`. Decisions and things later slices should know:
 
