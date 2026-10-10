@@ -46,6 +46,14 @@ combinations (for example a KMS key with an unsupported algorithm) fail at
 synth, not at request time. A thin stack turns it into resources and Lambda
 environment. No library packaging.
 
+The deployer writes `aws-ca.config.ts` (git-ignored; start from
+`aws-ca.config.example.ts`), whose default export is an `AwsCaConfigInput`;
+`AWS_CA_CONFIG` selects another file. `resolveConfig` (in `src/config`) fills in
+the defaults and throws one `ConfigError` that lists every problem with the
+dotted path of each field. Unknown keys are rejected so a typo is not silently
+ignored. Server issuance has no default: `policy.allowedDomainSuffixes` is
+required while a CA issues the `server` profile.
+
 ### 3. Key backends and protection
 
 Each CA chooses its backend independently (`parameter | secret | kms`).
@@ -177,6 +185,11 @@ HTTP`), and HTTP/3 must be off. The `cloudfront` level therefore creates two
   10,000 MAU free per month, so this is $0 at expected scale.
 - **mTLS** reenroll with the existing client cert where the front door allows it.
 - **IAM SigV4** opt-in, for automation that has AWS credentials.
+  **Open:** SigV4 also uses the `Authorization` header, so it cannot share an
+  endpoint with Basic auth. It would need its own route or prefix, and it cannot
+  be used with the `cloudfront` front door (a Function URL with auth `NONE`, see
+  section 7). It is therefore not in the configuration model yet; decide the
+  route layout before adding it.
 - Own user table in DynamoDB: rejected (would mean owning password storage).
 
 ### 9. Bootstrap

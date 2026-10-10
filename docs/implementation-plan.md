@@ -70,6 +70,18 @@ from design.md. Validation rules include:
 **Done when.** Table-driven unit tests cover every rule with a failing and a
 passing case, and error messages name the offending field.
 
+**Status: done.** `src/config` (types, `resolveConfig`, `loadConfigInput`),
+wired into `bin/aws-ca.ts` and the stack. Differences from the scope above:
+
+- `ocsp.signing` takes `operational` (default), `kms` (dedicated KMS key) or
+  `ca` (the CA key itself; needs every subordinate CA on `kms`).
+- An `operationalKey` configured while nothing uses it is an error.
+- IAM SigV4 is left out of the model (design.md section 8, open point).
+- The "KMS needs a supported algorithm" rule is structural: the algorithm type
+  only admits KMS-supported values.
+- API Gateway mTLS trust-store key limits are not validated, since they are not
+  documented the way CloudFront's are.
+
 ## Slice 2: crypto core (M)
 
 **Goal.** Productionize spike 1: issue certs and CRLs from any `Signer`.

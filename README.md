@@ -15,6 +15,14 @@ order of work. The previous implementation is on the `main` branch.
 - Node.js 24
 - AWS credentials and a bootstrapped CDK environment for deployment
 
+## Configuration
+
+Copy [aws-ca.config.example.ts](aws-ca.config.example.ts) to `aws-ca.config.ts`
+(git-ignored) and adjust it. Every option has a default, except
+`policy.allowedDomainSuffixes`, which you must set while a CA issues server
+certificates. Invalid settings fail `cdk synth` with every problem listed.
+`AWS_CA_CONFIG` selects a different file.
+
 ## Commands
 
 | Command              | What it does                                   |

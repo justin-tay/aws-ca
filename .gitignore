@@ -6,3 +6,6 @@ cdk.out
 
 /coverage
 .npmrc
+
+# a deployment's own settings; start from aws-ca.config.example.ts
+/aws-ca.config.ts

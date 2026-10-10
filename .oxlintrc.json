@@ -16,7 +16,10 @@
     // Parsing and validation narrow `unknown` input with assertions after runtime checks.
     "typescript/no-unsafe-type-assertion": "off",
     // CDK template assertions are assertions too.
-    "jest/expect-expect": ["error", { "assertFunctionNames": ["expect", "template.*", "Template.*"] }]
+    "jest/expect-expect": [
+      "error",
+      { "assertFunctionNames": ["expect", "template.*", "Template.*", "annotations.*"] }
+    ]
   },
   "ignorePatterns": ["cdk.out/**", "spikes/**"]
 }
