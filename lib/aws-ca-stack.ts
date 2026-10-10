@@ -136,6 +136,22 @@ export class AwsCaStack extends Stack {
       ...keyAccessStatements(this, config, [...subLabels, ...delegatedLabels], 'runtime'),
       ...rootKeyDenyStatements(this, config),
       ...(encryptionKeyArns.length > 0 ? [customerManagedKeyStatement(encryptionKeyArns, 'runtime')] : []),
+      ...(config.scep.enabled
+        ? [
+            new PolicyStatement({
+              sid: 'ScepChallenge',
+              effect: Effect.ALLOW,
+              actions: ['ssm:GetParameter'],
+              resources: [
+                this.formatArn({
+                  service: 'ssm',
+                  resource: 'parameter',
+                  resourceName: `${config.namePrefix}/internal/scep-challenge`.replace(/^\//, ''),
+                }),
+              ],
+            }),
+          ]
+        : []),
       new PolicyStatement({
         sid: 'EncryptionSecret',
         effect: Effect.ALLOW,
@@ -282,6 +298,16 @@ export class AwsCaStack extends Stack {
       description: 'Base URL for EST, for example <this>/<ca>/simpleenroll',
       value: `${functionUrl.url}.well-known/est`,
     });
+    if (config.scep.enabled) {
+      new CfnOutput(this, 'ScepEndpoint', {
+        description: 'SCEP URL for the first issuing CA',
+        value: `${functionUrl.url}scep/${config.subordinateCas[0].label}/pkiclient.exe`,
+      });
+      new CfnOutput(this, 'ScepChallengeParameter', {
+        description: 'The parameter that holds the SCEP challenge password',
+        value: this.bootstrap.getAttString('ScepChallengeParameter'),
+      });
+    }
     new CfnOutput(this, 'UserPoolId', { value: this.userPool.userPoolId });
     new CfnOutput(this, 'UserPoolClientId', { value: this.userPoolClient.userPoolClientId });
     new CfnOutput(this, 'RootCaFingerprint', {

@@ -18,7 +18,9 @@
     "test:aws": "tsx scripts/test-aws.ts"
   },
   "dependencies": {
+    "@peculiar/asn1-cms": "^2.10.0",
     "@peculiar/asn1-ocsp": "^2.10.0",
+    "@peculiar/asn1-rsa": "^2.10.0",
     "@peculiar/asn1-schema": "^2.10.0",
     "@peculiar/asn1-x509": "^2.10.0",
     "@peculiar/x509": "^1.14.3",

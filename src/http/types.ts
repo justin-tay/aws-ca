@@ -4,6 +4,8 @@ export interface HttpRequest {
   path: string;
   headers: Record<string, string>;
   body: Uint8Array;
+  /** The raw query string, without the leading `?`. */
+  query?: string;
   /** The public base URL of this service with no trailing slash, for URLs written into certificates. */
   baseUrl?: string;
 }

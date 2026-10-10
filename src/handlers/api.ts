@@ -11,7 +11,9 @@ import { EstServer } from '../est';
 import { originIsVerified, text, type HttpRequest, type HttpResponse } from '../http';
 import { KeyStoreRegistry } from '../keystore';
 import { OcspServer } from '../ocsp';
+import { CertificateIssuer } from '../issuance';
 import { OperationalKeyService } from '../operational';
+import { ScepServer, SsmChallenge, scepChallengeName } from '../scep';
 import { createLogger } from '../log';
 import { RevocationServer } from '../revocation';
 import { DynamoCaRepository, createDocumentClient } from '../repo';
@@ -28,6 +30,7 @@ export function toRequest(event: APIGatewayProxyEventV2): HttpRequest {
   return {
     method: event.requestContext.http.method.toUpperCase(),
     path: event.rawPath,
+    query: event.rawQueryString,
     headers,
     body: event.isBase64Encoded ? Buffer.from(body, 'base64') : Buffer.from(body, 'utf8'),
     // The Lambda service sets the domain; a client cannot choose it. `PUBLIC_BASE_URL` wins when a front door has its own.
@@ -48,6 +51,7 @@ interface Runtime {
   server: EstServer;
   revocation: RevocationServer;
   ocsp: OcspServer;
+  scep: ScepServer;
   crl: CrlService;
   /** The issuing CAs: the root's key is not available here, so its CRL is refreshed elsewhere. */
   issuingLabels: string[];
@@ -90,6 +94,14 @@ function createRuntime(): Runtime {
   const revocation = new RevocationServer({ config, repository, authenticator, crl, store, logger });
   const operational = new OperationalKeyService({ config, repository, keyStores, logger });
   const ocsp = new OcspServer({ config, repository, operational, keyStores, logger });
+  const scep = new ScepServer({
+    config,
+    repository,
+    operational,
+    issuer: new CertificateIssuer({ config, repository, keyStores }),
+    challenge: new SsmChallenge(ssm, scepChallengeName(config.namePrefix)),
+    logger,
+  });
 
   const parameter = process.env.ORIGIN_VERIFY_PARAMETER;
   let secret: Promise<string | undefined> | undefined;
@@ -97,6 +109,7 @@ function createRuntime(): Runtime {
     server,
     revocation,
     ocsp,
+    scep,
     crl,
     issuingLabels: config.subordinateCas.map((ca) => ca.label),
     originSecret: () => {
@@ -150,6 +163,9 @@ export const handler = async (
   if (!originIsVerified(request.headers, await runtime.originSecret())) {
     return toResult(text(403, 'Forbidden.'));
   }
-  const routed = (await runtime.revocation.handle(request)) ?? (await runtime.ocsp.handle(request));
+  const routed =
+    (await runtime.revocation.handle(request)) ??
+    (await runtime.ocsp.handle(request)) ??
+    (await runtime.scep.handle(request));
   return toResult(routed ?? (await runtime.server.handle(request)));
 };

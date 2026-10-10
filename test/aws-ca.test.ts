@@ -340,6 +340,31 @@ describe('delegated keys', () => {
   });
 });
 
+describe('SCEP', () => {
+  it('lets the runtime read the challenge, and nothing writes it but the bootstrap', () => {
+    const stack = stackFor();
+    const runtime = allows(statementsOf(stack, 'api')).find((s) => s.Sid === 'ScepChallenge');
+    expect(actionsOf(runtime as Statement)).toEqual(['ssm:GetParameter']);
+    expect(mentions(runtime?.Resource, '/private-ca/internal/scep-challenge')).toBe(true);
+    const writers = allows(statementsOf(stack, 'api')).filter((s) =>
+      actionsOf(s).includes('ssm:PutParameter'),
+    );
+    expect(writers).toEqual([]);
+  });
+
+  it('reports the endpoint and where the challenge is', () => {
+    const outputs = Template.fromStack(stackFor()).toJSON().Outputs as Record<string, unknown>;
+    expect(Object.keys(outputs)).toEqual(expect.arrayContaining(['ScepEndpoint', 'ScepChallengeParameter']));
+  });
+
+  it('is absent when disabled', () => {
+    const stack = stackFor({ scep: { enabled: false } });
+    expect(allows(statementsOf(stack, 'api')).some((s) => s.Sid === 'ScepChallenge')).toBe(false);
+    const outputs = Template.fromStack(stack).toJSON().Outputs as Record<string, unknown>;
+    expect(Object.keys(outputs)).not.toContain('ScepEndpoint');
+  });
+});
+
 describe('the CRL', () => {
   const stack = stackFor();
   const template = Template.fromStack(stack);

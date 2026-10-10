@@ -1,7 +1,8 @@
 import { X509Certificate } from '@peculiar/x509';
 import { authErrorResponse, authenticateRequest, isResponse, type Authenticator } from '../auth';
-import { CsrError, canonicalSerial, issueCertificate, parseCsr, type Signer } from '../ca';
+import { CsrError, parseCsr } from '../ca';
 import type { ResolvedConfig } from '../config';
+import { CertificateIssuer } from '../issuance';
 import { text, type HttpRequest, type HttpResponse } from '../http';
 import type { KeyStoreProvider } from '../keystore';
 import { silentLogger, type Logger } from '../log';
@@ -9,9 +10,6 @@ import { PolicyError, decideIssuance } from '../policy';
 import type { CaRecord, CaRepository } from '../repo';
 import { certsOnlyBase64 } from './pkcs7';
 
-const DAY_MS = 24 * 60 * 60 * 1000;
-/** Certificates start a little in the past so a client with a slightly slow clock accepts them. */
-const CLOCK_SKEW_MS = 5 * 60 * 1000;
 const MAX_REQUEST_BYTES = 64 * 1024;
 
 export interface EstDependencies {
@@ -68,13 +66,19 @@ function pkcs7(certificates: X509Certificate[]): HttpResponse {
 
 /** The EST server (RFC 7030): `cacerts`, `simpleenroll` and `simplereenroll`. */
 export class EstServer {
-  private readonly signers = new Map<string, Promise<Signer>>();
+  private readonly issuer: CertificateIssuer;
   private readonly logger: Logger;
   private readonly now: () => Date;
 
   constructor(private readonly deps: EstDependencies) {
     this.logger = deps.logger ?? silentLogger;
     this.now = deps.now ?? (() => new Date());
+    this.issuer = new CertificateIssuer({
+      config: deps.config,
+      repository: deps.repository,
+      keyStores: deps.keyStores,
+      now: this.now,
+    });
   }
 
   async handle(request: HttpRequest): Promise<HttpResponse> {
@@ -122,17 +126,6 @@ export class EstServer {
     return chain;
   }
 
-  private signerFor(ca: CaRecord): Promise<Signer> {
-    let signer = this.signers.get(ca.label);
-    if (!signer) {
-      signer = this.deps.keyStores.forRef(ca.keyRef).getSigner(ca.keyRef);
-      this.signers.set(ca.label, signer);
-      // A failure must not be cached, or the CA stays unusable until the process is replaced.
-      signer.catch(() => this.signers.delete(ca.label));
-    }
-    return signer;
-  }
-
   private async enroll(request: HttpRequest, ca: CaRecord, renewal: boolean): Promise<HttpResponse> {
     const user = await authenticateRequest(request, this.deps.authenticator, this.logger);
     if (isResponse(user)) {
@@ -171,36 +164,12 @@ export class EstServer {
       }
 
       const issuer = new X509Certificate(ca.certificatePem);
-      const notAfter = new Date(
-        Math.min(now.getTime() + decision.validityDays * DAY_MS, issuer.notAfter.getTime()),
-      );
-      const certificate = await issueCertificate({
-        profile: decision.profile,
-        subject: decision.subject,
+      const { certificate, serialNumber: serial } = await this.issuer.issue({
+        ca,
         publicKey: csr.publicKey,
-        issuer: { certificate: issuer, signer: await this.signerFor(ca) },
-        notBefore: new Date(now.getTime() - CLOCK_SKEW_MS),
-        notAfter,
-        subjectAltNames: decision.subjectAltNames,
-        ...(request.baseUrl === undefined
-          ? {}
-          : {
-              crlUrls: [`${request.baseUrl}/crl/${ca.label}.crl`],
-              ...(this.deps.config.ocsp.enabled ? { ocspUrls: [`${request.baseUrl}/ocsp/${ca.label}`] } : {}),
-            }),
-      });
-      const serial = canonicalSerial(certificate.serialNumber);
-      // Recorded before it is returned: a certificate nobody can find must never leave the CA.
-      await this.deps.repository.putCertificate({
-        caLabel: ca.label,
-        serialNumber: serial,
-        subject: decision.subject,
+        decision,
         owner: user.username,
-        profile: decision.profile,
-        notBefore: certificate.notBefore,
-        notAfter: certificate.notAfter,
-        certificateDer: new Uint8Array(certificate.rawData),
-        status: 'valid',
+        ...(request.baseUrl === undefined ? {} : { baseUrl: request.baseUrl }),
       });
       this.logger.info('issued', {
         username: user.username,

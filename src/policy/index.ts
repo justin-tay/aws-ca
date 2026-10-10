@@ -1,5 +1,6 @@
 export {
   decideIssuance,
+  decideScepIssuance,
   escapeDnValue,
   PolicyError,
   type IssuanceDecision,

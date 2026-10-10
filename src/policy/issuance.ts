@@ -75,6 +75,42 @@ const withinSuffix = (host: string, suffix: string): boolean =>
   host === suffix || host.endsWith(`.${suffix}`);
 
 /**
+ * SCEP has no authenticated user, only a shared challenge, so the name comes from the request:
+ * the one CN it asks for. The result is the client profile, built from the template like EST's.
+ * Requested names other than the CN are ignored.
+ */
+export function decideScepIssuance(request: {
+  csr: ParsedCsr;
+  caLabel: string;
+  config: Pick<ResolvedConfig, 'subordinateCas' | 'policy' | 'lifetimes'>;
+}): IssuanceDecision & { commonName: string } {
+  const ca = request.config.subordinateCas.find((candidate) => candidate.label === request.caLabel);
+  if (!ca) {
+    throw new PolicyError(`There is no CA "${request.caLabel}".`);
+  }
+  if (!ca.profiles.includes('client')) {
+    throw new PolicyError(`CA "${ca.label}" does not issue client certificates.`);
+  }
+  const commonNames = commonNamesOf(request.csr.subject);
+  const commonName = commonNames[0]?.trim() ?? '';
+  if (commonNames.length !== 1 || commonName === '' || commonName.length > 64) {
+    throw new PolicyError('The request must have exactly one subject CN of 1 to 64 characters.');
+  }
+  if (
+    commonName.split('').some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127)
+  ) {
+    throw new PolicyError('The request subject CN contains control characters.');
+  }
+  return {
+    profile: 'client',
+    commonName,
+    subject: request.config.policy.subjectTemplate.replaceAll('{username}', escapeDnValue(commonName)),
+    subjectAltNames: [],
+    validityDays: request.config.lifetimes.clientDays,
+  };
+}
+
+/**
  * Decides what, if anything, the user may be issued for this request. A request that has DNS or IP
  * names is a `server` request, anything else is a `client` request. What the certificate says comes
  * from here, never from the CSR's subject: for a client the configured template with the

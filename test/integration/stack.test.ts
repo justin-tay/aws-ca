@@ -13,6 +13,7 @@ import {
 } from '@aws-sdk/client-cognito-identity-provider';
 import { X509Certificate, X509Certificates, X509Crl } from '@peculiar/x509';
 import { clientKey, hasOpenssl, makeCsr, openssl, workDir } from '../ca/helpers';
+import { jscepAvailable, runConformance } from '../scep/jscep/run';
 import { DynamoCaRepository, createDocumentClient } from '../../src/repo';
 
 // Real AWS, and slow (minutes): deploys the whole stack with CloudFormation, checks what the
@@ -231,6 +232,25 @@ const region = process.env.AWS_REGION ?? 'ap-southeast-1';
     expect(serials).toEqual([leaf.serialNumber.replace(/^0+/, '')]);
     expect((await revoke(password, leaf.serialNumber)).status).toBe(409);
     await ocsp('leaf.pem: revoked');
+  });
+
+  it('enrolls over SCEP with jscep, using the generated challenge', async () => {
+    if (!jscepAvailable) {
+      console.warn('jscep (../jscep) or a JDK was not found: the SCEP check is skipped.');
+      return;
+    }
+    const { ScepEndpoint: url, ScepChallengeParameter: parameterName } = outputs();
+    const challenge = await ssm.send(new GetParameterCommand({ Name: parameterName, WithDecryption: true }));
+    expect(challenge.Parameter?.Value).toBeTruthy();
+
+    // The deployed CAs are ECDSA, which jscep's Bouncy Castle cannot verify on a current JDK, so
+    // its re-enrollment step is skipped here (the unit suite runs it against an RSA hierarchy).
+    const result = await runConformance(url, challenge.Parameter?.Value ?? '', { renew: false });
+
+    if (result.status !== 0 || result.output.includes('FAIL')) {
+      throw new Error(`jscep failed:\n${result.output.slice(-3000)}`);
+    }
+    expect(result.passes).toBeGreaterThanOrEqual(7);
   });
 
   it('adds a CA on update and leaves the existing ones alone', async () => {

@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { createPrivateKey, randomBytes, constants as cryptoConstants, privateDecrypt } from 'node:crypto';
 import { PublicKey, X509Certificate } from '@peculiar/x509';
 import { certificateToPem, issueCertificate, type Signer } from '../ca';
 import type { KeyAlgorithm, ResolvedConfig } from '../config';
@@ -43,6 +43,12 @@ export interface Responder {
   certificate: X509Certificate;
   signer: Signer;
   sequence: number;
+}
+
+/** A responder whose RSA private key can also unwrap a content key, for SCEP. */
+export interface DecryptingResponder extends Responder {
+  /** RSA PKCS#1 v1.5 decryption. OpenSSL rejects bad padding implicitly (a random result, not an error). */
+  decrypt(wrapped: Uint8Array, oaepHash?: 'sha1' | 'sha256' | 'sha384' | 'sha512'): Uint8Array;
 }
 
 export interface EnsureOutcome {
@@ -208,6 +214,55 @@ export class OperationalKeyService {
       }
     }
     return removed;
+  }
+
+  private readonly decryptors = new Map<string, Promise<DecryptingResponder>>();
+
+  /**
+   * The RA of an issuing CA: its certificate, and its private key for signing and decrypting.
+   * Only a key that can be exported works (KMS cannot do PKCS#1 v1.5 decryption).
+   */
+  async decryptingResponder(caLabel: string): Promise<DecryptingResponder | undefined> {
+    const label = operationalLabel(caLabel, 'ops');
+    const now = this.now();
+    const records = await this.deps.repository.listOperationalCertificates(label);
+    const record = records
+      .filter((candidate) => candidate.active && candidate.notAfter > now)
+      .toSorted((a, b) => b.sequence - a.sequence)[0];
+    if (!record) {
+      return undefined;
+    }
+    const cacheKey = `${label}/${record.sequence}`;
+    let loaded = this.decryptors.get(cacheKey);
+    if (!loaded) {
+      const store = this.deps.keyStores.forRef(record.keyRef);
+      const exportKey = store.exportKey?.bind(store);
+      if (!exportKey) {
+        throw new Error('The operational key cannot be exported, so it cannot decrypt SCEP requests.');
+      }
+      loaded = (async (): Promise<DecryptingResponder> => {
+        const pkcs8 = await exportKey(record.keyRef);
+        const privateKey = createPrivateKey({ key: Buffer.from(pkcs8), format: 'der', type: 'pkcs8' });
+        pkcs8.fill(0);
+        return {
+          certificate: new X509Certificate(record.certificatePem),
+          signer: await store.getSigner(record.keyRef),
+          sequence: record.sequence,
+          decrypt: (wrapped, oaepHash) =>
+            new Uint8Array(
+              privateDecrypt(
+                oaepHash
+                  ? { key: privateKey, padding: cryptoConstants.RSA_PKCS1_OAEP_PADDING, oaepHash }
+                  : { key: privateKey, padding: cryptoConstants.RSA_PKCS1_PADDING },
+                wrapped,
+              ),
+            ),
+        };
+      })();
+      this.decryptors.set(cacheKey, loaded);
+      loaded.catch(() => this.decryptors.delete(cacheKey));
+    }
+    return loaded;
   }
 
   /** The newest active, unexpired certificate and its signer; `undefined` if there is none. */

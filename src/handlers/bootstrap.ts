@@ -14,6 +14,7 @@ import type { ResolvedConfig } from '../config';
 import { CrlService, S3CrlStore } from '../crl';
 import { createLogger } from '../log';
 import { OperationalKeyService } from '../operational';
+import { ensureScepChallenge, scepChallengeName } from '../scep';
 import { KeyStoreError, KeyStoreRegistry, createEncryptionSecret, encryptionSecretName } from '../keystore';
 import { DynamoCaRepository, createDocumentClient } from '../repo';
 
@@ -153,6 +154,7 @@ export const handler = async (
       const removed = await teardownCas({ config, keyStores, repository });
       await removeParameter(ssm, encryptionSecretName(config.namePrefix));
       await removeParameter(ssm, offlineRootKeyParameterName(config.namePrefix));
+      await removeParameter(ssm, scepChallengeName(config.namePrefix));
       // The CRL bucket is deleted with the stack and must be empty by then.
       const bucket = process.env.CRL_BUCKET;
       if (bucket !== undefined) {
@@ -195,6 +197,11 @@ export const handler = async (
       rootKeyExported: result.rootKeyExported,
     }),
   );
+  // The shared SCEP challenge, generated once; an operator reads it from here to enroll devices.
+  if (config.scep.enabled) {
+    await ensureScepChallenge(ssm, scepChallengeName(config.namePrefix));
+  }
+
   // The delegated keys of each issuing CA (SCEP, OCSP): created here, rotated by the daily run.
   const operational = await new OperationalKeyService({
     config,
@@ -226,6 +233,7 @@ export const handler = async (
       RootFingerprint: root?.fingerprint ?? '',
       Cas: result.cas.map((ca) => `${ca.label}=${ca.fingerprint}`).join(','),
       ...(config.rootCa.keyHandling === 'offline' ? { OfflineRootKeyParameter: offlineParameter } : {}),
+      ...(config.scep.enabled ? { ScepChallengeParameter: scepChallengeName(config.namePrefix) } : {}),
     },
   };
 };
