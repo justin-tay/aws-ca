@@ -57,3 +57,38 @@ to the root without errors. Also try a wrong password (401) and a different CN
 
 Clean-up: remove the root from the Trusted Root store and the certificate from
 `My`.
+
+## With PSCertificateEnrollment (SCEP and EST, verified)
+
+[PSCertificateEnrollment](https://www.powershellgallery.com/packages/PSCertificateEnrollment/)
+(Uwe Gradenegger, tested with 1.0.12) drives Windows' own enrollment APIs, so it
+is a faithful stand-in for what a Windows client does. Use `-Scope CurrentUser`
+or import it from a folder; it needs no trust store changes, but it **does** leave
+a certificate in `Cert:CurrentUserMy` and private keys in your profile, so
+remove them afterwards (`certutil -user -csp "Microsoft Software Key Storage
+Provider" -key` lists the keys; `-delkey <name>` removes one).
+
+SCEP, with the challenge from the `ScepChallengeParameter` output (the module
+adds `/pkiclient.exe` itself):
+
+```powershell
+$challenge = aws ssm get-parameter --name <ScepChallengeParameter> --with-decryption `
+  --query Parameter.Value --output text
+Get-SCEPCertificate -ComputerName <function-url-host> -UseSSL -Suffix 'scep/issuing' `
+  -ChallengePassword $challenge -Subject 'CN=my-device' -KeyAlgorithm RSA -KeyLength 2048
+# Renewal needs no challenge: sign with the certificate you were issued.
+Get-SCEPCertificate -ComputerName <host> -UseSSL -Suffix 'scep/issuing' `
+  -SigningCert (Get-Item Cert:CurrentUserMy<thumbprint>) -KeyAlgorithm RSA -KeyLength 2048
+```
+
+EST, with a Cognito user in the `est-client` group (the CN must be the user name):
+
+```powershell
+$credential = Get-Credential   # the Cognito user name and password
+$csr = New-CertificateRequest -Subject 'CN=<user>' -KeyAlgorithm ECDSA_P256
+Get-ESTCertificate -CertificateRequest $csr -ComputerName <function-url-host> -Credential $credential
+```
+
+This returns the certificate and its issuing CA; install it with
+`Install-IssuedCertificate` if you want it bound to the key. EST re-enrollment
+with a client certificate needs mTLS, which the `function-url` front door does not offer.

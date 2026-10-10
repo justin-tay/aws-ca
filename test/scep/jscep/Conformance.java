@@ -75,7 +75,7 @@ public class Conformance {
 
         CertStore store = client.getCaCertificate();
         Collection<?> certs = store.getCertificates(null);
-        check(certs.size() == 2, "GetCACert returns the RA and the CA (" + certs.size() + ")");
+        check(certs.size() == 3, "GetCACert returns the RA, the CA and the root (" + certs.size() + ")");
 
         // First enrollment: a self-signed certificate for the key, and the challenge.
         KeyPair keys = rsa();

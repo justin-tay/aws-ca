@@ -437,7 +437,9 @@ SCEP failure; a CSR signed with an unsupported algorithm is rejected cleanly.
 should not be ported wholesale. The Windows SCEP path (Intune) is a follow-up,
 not a gate for this slice.
 
-**Status: implemented; the deployed check is written but not yet run.**
+**Status: done and verified against real AWS: jscep against the deployed Function URL
+(5 of 5), and Windows 11's own SCEP client through PSCertificateEnrollment (see
+`docs/windows-enrollment.md`).**
 `src/scep`, `src/issuance` (EST and SCEP now share one issuer). Differences
 from the scope and things later slices should know:
 
@@ -483,8 +485,15 @@ from the scope and things later slices should know:
   25 ("cannot identify EC public key"), so the unit-suite conformance test runs
   the re-enrollment against an RSA hierarchy, and the deployed check (ECDSA)
   skips the re-enrollment step. The Node client in `scep.test.ts` covers ECDSA.
-- **Intune** (and Windows' own SCEP client) is still the follow-up integration
-  test.
+- **Windows (verified):** the PSCertificateEnrollment module (1.0.12) enrolled and
+  renewed over SCEP with Windows' native `IX509SCEPEnrollment`, and enrolled over
+  EST (ECDSA P-256 and RSA 2048). Findings: Windows requires the **self-signed
+  root in the `GetCACert` response** (NDES delivers the chain), so `GetCACert`
+  returns RA, CA and the CA's parents; and a cold start plus RSA work took longer
+  than Lambda's 3 s default, so the API function is now 1024 MB with a 30 s
+  timeout. The module appends `/pkiclient.exe` itself (`-Suffix scep/issuing`).
+  The Windows built-in `Get-Certificate` speaks XCEP/WSTEP, not SCEP or EST.
+- **Intune** itself (an MDM profile) is still the follow-up integration test.
 
 ## Slice 10: front doors (L)
 

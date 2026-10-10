@@ -211,6 +211,10 @@ export class AwsCaStack extends Stack {
       role: this.apiRole,
       logGroup: apiLogs,
       bundling,
+      // The defaults (128 MB, 3 s) are too little: a cold start loads the bundle, the CA key and the
+      // operational key, and a SCEP renewal timed out at 3 s on a deployed stack. Memory is also CPU.
+      memorySize: 1024,
+      timeout: Duration.seconds(30),
       environment: {
         TABLE_NAME: this.table.tableName,
         NAME_PREFIX: config.namePrefix,

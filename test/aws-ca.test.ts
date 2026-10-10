@@ -95,6 +95,15 @@ describe('functions', () => {
     });
   });
 
+  it('gives the API function enough memory and time for a cold start with RSA operations', () => {
+    const functions = Object.values(template.findResources('AWS::Lambda::Function'));
+    const api = functions.find((fn) =>
+      JSON.stringify(fn.Properties.Environment ?? {}).includes('USER_POOL_CLIENT_ID'),
+    );
+    expect(api?.Properties.MemorySize).toBeGreaterThanOrEqual(512);
+    expect(api?.Properties.Timeout).toBeGreaterThanOrEqual(30);
+  });
+
   it('bootstrap through a custom resource that carries the configuration and the table', () => {
     const resources = template.findResources('AWS::CloudFormation::CustomResource');
     const properties = Object.values(resources)[0].Properties as { Config: string; TableName: unknown };

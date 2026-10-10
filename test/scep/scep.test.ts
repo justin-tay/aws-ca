@@ -289,7 +289,9 @@ describe('SCEP discovery', () => {
     const { server, repository } = await setup();
     const cert = await handle(server, { query: 'operation=GetCACert' });
     expect(cert?.headers['content-type']).toBe('application/x-x509-ca-ra-cert');
-    const [ra, ca] = [...new X509Certificates(bodyBytes(cert))];
+    const [ra, ca, root] = [...new X509Certificates(bodyBytes(cert))];
+    // The self-signed root is delivered too, which Windows' SCEP client requires.
+    expect(root.subject).toBe(root.issuer);
     expect(ra.subject).toContain('issuing-ops');
     expect(ca.subject).toBe(new X509Certificate((await repository.getCa('issuing'))!.certificatePem).subject);
     expect(await ra.verify({ publicKey: ca, signatureOnly: true })).toBe(true);

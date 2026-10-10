@@ -152,13 +152,14 @@ export class ScepServer {
     return chain;
   }
 
-  /** With an RA, GetCACert returns the RA and the CA as a degenerate PKCS#7 (RFC 8894 4.2). */
+  /**
+   * With an RA, GetCACert returns the RA and the CA as a degenerate PKCS#7 (RFC 8894 4.2). The
+   * CA's own chain, root included, is added: Windows' SCEP client (and so Intune's) finds the
+   * self-signed root in this response, as NDES delivers it, and refuses to enroll without it.
+   */
   private async caCert(ca: CaRecord): Promise<HttpResponse> {
     const responder = await this.deps.operational.decryptingResponder(ca.label);
-    const certificates = [
-      ...(responder ? [responder.certificate] : []),
-      new X509Certificate(ca.certificatePem),
-    ];
+    const certificates = [...(responder ? [responder.certificate] : []), ...(await this.chainOf(ca))];
     return binary(certificatesOnly(certificates), 'application/x-x509-ca-ra-cert');
   }
 
