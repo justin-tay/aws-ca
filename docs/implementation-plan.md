@@ -336,7 +336,8 @@ CDP in issued certs.
 - `openssl verify -crl_check` rejects a revoked leaf using the served CRL.
 - A user cannot revoke another user's cert; an `est-admin` can.
 
-**Status: implemented; the deployed check is written but not yet run.**
+**Status: done and verified against real AWS (first CRLs at deploy, revoke 404/200/409,
+CRL lists the serial, destroy empties the bucket).**
 `src/crl`, `src/revocation`, `src/auth/request.ts`. Notes for later slices:
 
 - API: `POST /ca/<ca>/revoke` (Basic auth, JSON `{serialNumber, reason?}`) and
