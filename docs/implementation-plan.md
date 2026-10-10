@@ -236,6 +236,32 @@ Root key access; runtime role without it; stack outputs.
 **Risks.** Custom-resource timeouts and rollback behaviour; the `offline`
 export path needs a clear one-time output that is not logged to CloudWatch.
 
+**Status: done; the real deployment test is written but not yet run.**
+`src/bootstrap` (`bootstrapCas`, `teardownCas`), `src/handlers/bootstrap.ts`,
+`lib/aws-ca-stack.ts`, `lib/permissions.ts`. 365 unit tests, including a
+synth test that the runtime role has no path to the root key, and `cdk synth`
+plus a load of the bundled handler. Differences from the scope above and
+things later slices should know:
+
+- Key names carry a per-attempt generation id (`createKey(label, algorithm,
+{ generation })`) so concurrent bootstraps cannot collide on a key; the CA
+  record is the arbiter and a loser deletes its own key.
+- Config gained `removalPolicy` (`retain` default), and two rules: an `offline`
+  root cannot be a KMS key, and `root` is reserved as a label.
+- The runtime role also carries an explicit `Deny` for the root key, and the
+  `Provider` framework's own role is acknowledged in the cdk-nag test.
+- `CaKeyStore.exportKey` (optional) and a `KeyStoreProvider` interface were
+  added; KMS keys cannot be exported.
+- The operational key and certificate are **not** created here: slice 8 owns
+  their issuance and rotation, the bootstrap only prepares the encryption
+  secret when any key (operational included) is `app-encrypted`.
+- The sub CA certificate carries no CRL or AIA URLs yet: they depend on the
+  front door, so slice 7 (root CRL) and slice 10 decide them.
+- `AWS_CA_STACK_NAME` selects the stack name, so instances can run side by side
+  and the deployment test can use its own.
+- Tests skip esbuild with `aws:cdk:bundling-stacks: []` except one that
+  bundles for real.
+
 ## Slice 6: EST enrollment end to end (M)
 
 **Goal.** First real client flow, on the cheapest front door.

@@ -12,9 +12,10 @@ import {
 } from '@aws-sdk/client-kms';
 import { nodeDigest, type Signer } from '../ca';
 import type { KeyAlgorithm } from '../config';
-import { KeyStoreError, type CaKeyStore, type CreatedKey, type KeyRef } from './types';
+import { KeyStoreError, type CaKeyStore, type CreatedKey, type CreateKeyOptions, type KeyRef } from './types';
 
 const LABEL = /^[a-z0-9][a-z0-9-]{0,31}$/;
+const GENERATION = /^[a-z0-9]{4,32}$/;
 
 const KEY_SPEC = {
   'P-256': 'ECC_NIST_P256',
@@ -62,9 +63,16 @@ export class KmsKeyStore implements CaKeyStore {
     this.deletionWindowInDays = options.deletionWindowInDays ?? 7;
   }
 
-  async createKey(label: string, algorithm: KeyAlgorithm): Promise<CreatedKey> {
+  async createKey(
+    label: string,
+    algorithm: KeyAlgorithm,
+    options: CreateKeyOptions = {},
+  ): Promise<CreatedKey> {
     if (!LABEL.test(label)) {
       throw new KeyStoreError('unsupported', `"${label}" is not a valid CA label.`);
+    }
+    if (options.generation !== undefined && !GENERATION.test(options.generation)) {
+      throw new KeyStoreError('unsupported', `"${options.generation}" is not a valid key generation id.`);
     }
     const { client } = this.options;
     const created = await client.send(
@@ -79,7 +87,11 @@ export class KmsKeyStore implements CaKeyStore {
     if (keyId === undefined) {
       throw new Error('KMS did not return the key ARN.');
     }
-    const alias = `${this.aliasPrefix}/${label}`;
+    // One path segment per level, so an IAM pattern for one CA cannot match another's.
+    const alias =
+      options.generation === undefined
+        ? `${this.aliasPrefix}/${label}`
+        : `${this.aliasPrefix}/${label}/${options.generation}`;
     try {
       await client.send(new CreateAliasCommand({ AliasName: alias, TargetKeyId: keyId }));
     } catch (error) {
@@ -88,10 +100,7 @@ export class KmsKeyStore implements CaKeyStore {
         new ScheduleKeyDeletionCommand({ KeyId: keyId, PendingWindowInDays: this.deletionWindowInDays }),
       );
       if (errorName(error) === 'AlreadyExistsException') {
-        throw new KeyStoreError(
-          'already-exists',
-          `A KMS key aliased ${this.aliasPrefix}/${label} already exists.`,
-        );
+        throw new KeyStoreError('already-exists', `A KMS key aliased ${alias} already exists.`);
       }
       throw error;
     }

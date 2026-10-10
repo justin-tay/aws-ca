@@ -5,14 +5,28 @@ import type { KeyProtection, ResolvedKeyStore } from '../config';
 import { SsmEncryptionSecret, encryptionSecretName } from './encryption-secret';
 import { ExportableKeyStore } from './exportable';
 import { KmsKeyStore } from './kms';
-import { KeyStoreError, type CaKeyStore, type EncryptionSecretProvider, type KeyRef } from './types';
+import {
+  KeyStoreError,
+  type CaKeyStore,
+  type EncryptionSecretProvider,
+  type KeyRef,
+  type KeyStoreProvider,
+} from './types';
 import { ParameterValueStore, SecretValueStore } from './value-stores';
 
 export { createEncryptionSecret, encryptionSecretName, SsmEncryptionSecret } from './encryption-secret';
 export { ExportableKeyStore, type ExportableKeyStoreOptions } from './exportable';
 export { KmsKeyStore, type KmsKeyStoreOptions } from './kms';
 export { KeyStoreError } from './types';
-export type { CaKeyStore, CreatedKey, EncryptionSecretProvider, KeyRef, KeyStoreErrorCode } from './types';
+export type {
+  CaKeyStore,
+  CreatedKey,
+  CreateKeyOptions,
+  EncryptionSecretProvider,
+  KeyRef,
+  KeyStoreErrorCode,
+  KeyStoreProvider,
+} from './types';
 export { ParameterValueStore, SecretValueStore, type ValueStore } from './value-stores';
 
 export interface KeyStoreRegistryOptions {
@@ -32,7 +46,7 @@ export interface KeyStoreRegistryOptions {
  * key follows its own reference ({@link forRef}), so changing the configuration later can never
  * send the runtime looking in the wrong place.
  */
-export class KeyStoreRegistry {
+export class KeyStoreRegistry implements KeyStoreProvider {
   private readonly stores = new Map<string, CaKeyStore>();
   private readonly encryptionSecret: EncryptionSecretProvider;
   private readonly kmsStore: KmsKeyStore;

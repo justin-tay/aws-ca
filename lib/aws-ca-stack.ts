@@ -1,38 +1,203 @@
 import { join } from 'node:path';
-import { Annotations, Stack, type StackProps } from 'aws-cdk-lib/core';
+import {
+  Duration,
+  Annotations,
+  CfnOutput,
+  CustomResource,
+  RemovalPolicy,
+  Stack,
+  type StackProps,
+} from 'aws-cdk-lib/core';
+import { AttributeType, BillingMode, ProjectionType, Table } from 'aws-cdk-lib/aws-dynamodb';
+import { Effect, PolicyStatement, Role, ServicePrincipal } from 'aws-cdk-lib/aws-iam';
+import { Key } from 'aws-cdk-lib/aws-kms';
 import { Architecture, Runtime } from 'aws-cdk-lib/aws-lambda';
 import { NodejsFunction, OutputFormat } from 'aws-cdk-lib/aws-lambda-nodejs';
+import { LogGroup, RetentionDays } from 'aws-cdk-lib/aws-logs';
+import { Provider } from 'aws-cdk-lib/custom-resources';
 import type { Construct } from 'constructs';
 import type { ResolvedConfig } from '../src/config';
+import { TABLE_SCHEMA } from '../src/repo';
+import { customerManagedKeyStatement, keyAccessStatements, rootKeyDenyStatements } from './permissions';
 
 export interface AwsCaStackProps extends StackProps {
   /** The validated configuration; see `resolveConfig`. */
   config: ResolvedConfig;
 }
 
+const bundling = {
+  format: OutputFormat.ESM,
+  target: 'node24',
+  // The SDK clients are provided by the Node 24 Lambda runtime.
+  externalModules: ['@aws-sdk/*'],
+  // ESM output has no `require`; some dependencies of the X.509 libraries expect it.
+  banner: "import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);",
+};
+
 export class AwsCaStack extends Stack {
   public readonly config: ResolvedConfig;
+  public readonly table: Table;
+  /** Serves requests. Has no access to the root CA's key. */
   public readonly apiFunction: NodejsFunction;
+  public readonly apiRole: Role;
+  /** Creates the CAs. The only identity that can use the root CA's key. */
+  public readonly bootstrapFunction: NodejsFunction;
+  public readonly bootstrapRole: Role;
+  public readonly bootstrap: CustomResource;
+  /** The KMS key that encrypts stored CA keys under `customer-managed-key`, when this stack makes one. */
+  public readonly customerManagedKey?: Key;
 
   constructor(scope: Construct, id: string, props: AwsCaStackProps) {
     const { config, ...stackProps } = props;
     super(scope, id, stackProps);
     this.config = config;
+    const removal = config.removalPolicy === 'destroy' ? RemovalPolicy.DESTROY : RemovalPolicy.RETAIN;
 
     for (const warning of config.warnings) {
       Annotations.of(this).addWarningV2('aws-ca:config', warning);
+    }
+
+    // -- data
+    this.table = new Table(this, 'Table', {
+      partitionKey: { name: TABLE_SCHEMA.partitionKey, type: AttributeType.STRING },
+      sortKey: { name: TABLE_SCHEMA.sortKey, type: AttributeType.STRING },
+      billingMode: BillingMode.PAY_PER_REQUEST,
+      timeToLiveAttribute: TABLE_SCHEMA.ttlAttribute,
+      pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
+      removalPolicy: removal,
+    });
+    for (const index of [TABLE_SCHEMA.ownerIndex, TABLE_SCHEMA.revokedIndex]) {
+      this.table.addGlobalSecondaryIndex({
+        indexName: index.name,
+        partitionKey: { name: index.partitionKey, type: AttributeType.STRING },
+        sortKey: { name: index.sortKey, type: AttributeType.STRING },
+        projectionType: ProjectionType.ALL,
+      });
+    }
+
+    // -- encryption key for stored CA keys, when asked for and not supplied
+    const stores = [
+      config.rootCa.keyStore,
+      ...config.subordinateCas.map((ca) => ca.keyStore),
+      ...(config.operationalKey ? [config.operationalKey.keyStore] : []),
+    ];
+    const needsStackKey = stores.some(
+      (store) => store.backend !== 'kms' && store.protection === 'customer-managed-key' && !store.kmsKeyArn,
+    );
+    if (needsStackKey) {
+      this.customerManagedKey = new Key(this, 'CaKeyEncryptionKey', {
+        description: 'Encrypts the CA private keys held in Parameter Store and Secrets Manager',
+        enableKeyRotation: true,
+        removalPolicy: removal,
+      });
+    }
+    const encryptionKeyArns = [
+      ...(this.customerManagedKey ? [this.customerManagedKey.keyArn] : []),
+      ...stores.flatMap((store) => (store.backend !== 'kms' && store.kmsKeyArn ? [store.kmsKeyArn] : [])),
+    ];
+
+    // -- the runtime: serves requests, may use the issuing CAs' keys, never the root's
+    const subLabels = config.subordinateCas.map((ca) => ca.label);
+    const apiLogs = new LogGroup(this, 'ApiLogs', {
+      retention: RetentionDays.ONE_YEAR,
+      removalPolicy: removal,
+    });
+    this.apiRole = new Role(this, 'ApiRole', { assumedBy: new ServicePrincipal('lambda.amazonaws.com') });
+    apiLogs.grantWrite(this.apiRole);
+    this.table.grantReadWriteData(this.apiRole);
+    for (const statement of [
+      ...keyAccessStatements(this, config, subLabels, 'runtime'),
+      ...rootKeyDenyStatements(this, config),
+      ...(encryptionKeyArns.length > 0 ? [customerManagedKeyStatement(encryptionKeyArns, 'runtime')] : []),
+      new PolicyStatement({
+        sid: 'EncryptionSecret',
+        effect: Effect.ALLOW,
+        actions: ['ssm:GetParameter'],
+        resources: [
+          this.formatArn({
+            service: 'ssm',
+            resource: 'parameter',
+            resourceName: `${config.namePrefix}/internal/encryption-secret`.replace(/^\//, ''),
+          }),
+        ],
+      }),
+    ]) {
+      this.apiRole.addToPolicy(statement);
     }
 
     this.apiFunction = new NodejsFunction(this, 'ApiFunction', {
       entry: join(__dirname, '../src/handlers/api.ts'),
       runtime: Runtime.NODEJS_24_X,
       architecture: Architecture.ARM_64,
-      bundling: {
-        format: OutputFormat.ESM,
-        target: 'node24',
-        // The SDK clients are provided by the Node 24 Lambda runtime.
-        externalModules: ['@aws-sdk/*'],
+      role: this.apiRole,
+      logGroup: apiLogs,
+      bundling,
+      environment: {
+        TABLE_NAME: this.table.tableName,
+        NAME_PREFIX: config.namePrefix,
+        ...(this.customerManagedKey ? { CUSTOMER_MANAGED_KEY_ARN: this.customerManagedKey.keyArn } : {}),
       },
     });
+
+    // -- the bootstrap: creates the CAs, so it may use every key, root included
+    const bootstrapLogs = new LogGroup(this, 'BootstrapLogs', {
+      retention: RetentionDays.ONE_YEAR,
+      removalPolicy: removal,
+    });
+    this.bootstrapRole = new Role(this, 'BootstrapRole', {
+      assumedBy: new ServicePrincipal('lambda.amazonaws.com'),
+    });
+    bootstrapLogs.grantWrite(this.bootstrapRole);
+    this.table.grantReadWriteData(this.bootstrapRole);
+    const secretPath = `${config.namePrefix}/internal/*`.replace(/^\//, '');
+    for (const statement of [
+      ...keyAccessStatements(this, config, ['root', ...subLabels], 'admin'),
+      ...(encryptionKeyArns.length > 0 ? [customerManagedKeyStatement(encryptionKeyArns, 'admin')] : []),
+      new PolicyStatement({
+        sid: 'InternalParameters',
+        actions: ['ssm:GetParameter', 'ssm:PutParameter', 'ssm:DeleteParameter'],
+        resources: [this.formatArn({ service: 'ssm', resource: 'parameter', resourceName: secretPath })],
+      }),
+    ]) {
+      this.bootstrapRole.addToPolicy(statement);
+    }
+
+    this.bootstrapFunction = new NodejsFunction(this, 'BootstrapFunction', {
+      entry: join(__dirname, '../src/handlers/bootstrap.ts'),
+      runtime: Runtime.NODEJS_24_X,
+      architecture: Architecture.ARM_64,
+      role: this.bootstrapRole,
+      logGroup: bootstrapLogs,
+      // Key generation is CPU bound and Lambda's CPU follows memory.
+      memorySize: 1024,
+      timeout: Duration.minutes(5),
+      bundling,
+    });
+
+    const provider = new Provider(this, 'BootstrapProvider', { onEventHandler: this.bootstrapFunction });
+    this.bootstrap = new CustomResource(this, 'Bootstrap', {
+      serviceToken: provider.serviceToken,
+      properties: {
+        Config: JSON.stringify(config),
+        TableName: this.table.tableName,
+        ...(this.customerManagedKey ? { CustomerManagedKeyArn: this.customerManagedKey.keyArn } : {}),
+      },
+    });
+    // The roles' permissions must be in place before the function is invoked.
+    this.bootstrap.node.addDependency(this.table, this.bootstrapRole);
+
+    // -- outputs
+    new CfnOutput(this, 'TableName', { value: this.table.tableName });
+    new CfnOutput(this, 'RootCaFingerprint', {
+      description: 'SHA-256 fingerprint of the root CA certificate',
+      value: this.bootstrap.getAttString('RootFingerprint'),
+    });
+    if (config.rootCa.keyHandling === 'offline') {
+      new CfnOutput(this, 'OfflineRootKeyParameter', {
+        description:
+          'Read the root CA key from this parameter once, store it offline, then delete the parameter',
+        value: this.bootstrap.getAttString('OfflineRootKeyParameter'),
+      });
+    }
   }
 }

@@ -21,7 +21,12 @@ Copy [aws-ca.config.example.ts](aws-ca.config.example.ts) to `aws-ca.config.ts`
 (git-ignored) and adjust it. Every option has a default, except
 `policy.allowedDomainSuffixes`, which you must set while a CA issues server
 certificates. Invalid settings fail `cdk synth` with every problem listed.
-`AWS_CA_CONFIG` selects a different file.
+`AWS_CA_CONFIG` selects a different file, and `AWS_CA_STACK_NAME` a different
+stack name, so more than one instance can be deployed side by side.
+
+By default the stack and the CA keys are **retained** if the stack is deleted,
+because deleting them loses the CA. Set `removalPolicy: 'destroy'` for
+experiments.
 
 ## Commands
 

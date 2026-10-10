@@ -5,12 +5,14 @@ import {
   KeyStoreError,
   type CaKeyStore,
   type CreatedKey,
+  type CreateKeyOptions,
   type EncryptionSecretProvider,
   type KeyRef,
 } from './types';
 import type { ValueStore } from './value-stores';
 
 const LABEL = /^[a-z0-9][a-z0-9-]{0,31}$/;
+const GENERATION = /^[a-z0-9]{4,32}$/;
 
 export interface ExportableKeyStoreOptions {
   values: ValueStore;
@@ -50,17 +52,27 @@ export class ExportableKeyStore implements CaKeyStore {
     }
   }
 
-  private nameFor(label: string): string {
-    const path = `${this.options.namePrefix}/ca/${label}/key`;
+  private nameFor(label: string, generation?: string): string {
+    const path =
+      generation === undefined
+        ? `${this.options.namePrefix}/ca/${label}/key`
+        : `${this.options.namePrefix}/ca/${label}/${generation}/key`;
     return this.options.values.backend === 'secret' ? path.replace(/^\//, '') : path;
   }
 
-  async createKey(label: string, algorithm: KeyAlgorithm): Promise<CreatedKey> {
+  async createKey(
+    label: string,
+    algorithm: KeyAlgorithm,
+    options: CreateKeyOptions = {},
+  ): Promise<CreatedKey> {
     if (!LABEL.test(label)) {
       throw new KeyStoreError('unsupported', `"${label}" is not a valid CA label.`);
     }
+    if (options.generation !== undefined && !GENERATION.test(options.generation)) {
+      throw new KeyStoreError('unsupported', `"${options.generation}" is not a valid key generation id.`);
+    }
     const { values, protection } = this.options;
-    const name = this.nameFor(label);
+    const name = this.nameFor(label, options.generation);
     const { signer, pkcs8 } = await generateLocalKey(algorithm);
     try {
       const value =
@@ -106,6 +118,26 @@ export class ExportableKeyStore implements CaKeyStore {
   }
 
   private async load(keyRef: Extract<KeyRef, { name: string }>): Promise<Signer> {
+    const pkcs8 = await this.loadPkcs8(keyRef);
+    try {
+      return localSignerFromPkcs8(pkcs8, keyRef.algorithm);
+    } finally {
+      pkcs8.fill(0);
+    }
+  }
+
+  async exportKey(keyRef: KeyRef): Promise<Uint8Array> {
+    if (keyRef.backend !== this.options.values.backend) {
+      throw new KeyStoreError(
+        'unsupported',
+        `This store holds ${this.options.values.backend} keys, not ${keyRef.backend}.`,
+      );
+    }
+    return this.loadPkcs8(keyRef);
+  }
+
+  /** Reads and checks the stored key: protection, decryption and the public key on record. */
+  private async loadPkcs8(keyRef: Extract<KeyRef, { name: string }>): Promise<Uint8Array> {
     const stored = await this.options.values.read(keyRef.name);
     const expected = keyRef.protection === 'app-encrypted' ? 'app-encrypted' : 'plain';
     if (kindOf(stored) !== expected) {
@@ -118,12 +150,13 @@ export class ExportableKeyStore implements CaKeyStore {
       expected === 'app-encrypted'
         ? decodeEncrypted(stored, await this.options.encryptionSecret!.get(), keyRef.name)
         : decodePlain(stored);
+    // Building the signer checks the key is the algorithm on record and yields its public key.
     const signer = localSignerFromPkcs8(pkcs8, keyRef.algorithm);
-    pkcs8.fill(0);
     if (Buffer.from(signer.spki).toString('base64') !== keyRef.publicKey) {
+      pkcs8.fill(0);
       throw new KeyStoreError('integrity', `The key ${keyRef.name} does not match the public key on record.`);
     }
-    return signer;
+    return pkcs8;
   }
 
   async deleteKey(keyRef: KeyRef): Promise<void> {

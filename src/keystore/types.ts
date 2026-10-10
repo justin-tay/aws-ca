@@ -1,5 +1,5 @@
 import type { Signer } from '../ca';
-import type { KeyAlgorithm, KeyProtection } from '../config';
+import type { KeyAlgorithm, KeyProtection, ResolvedKeyStore } from '../config';
 
 /**
  * Where a CA key lives. Stored in the CA's record and authoritative: the configured backend only
@@ -34,9 +34,23 @@ export interface CreatedKey {
   spki: Uint8Array;
 }
 
+export interface CreateKeyOptions {
+  /**
+   * A short lowercase id that becomes part of the key's name. Without it the name is derived from the
+   * label alone, so two concurrent creators collide on the name. With it each attempt has its own
+   * name, and whoever loses a race for the CA record just deletes its own key.
+   */
+  generation?: string;
+}
+
 export interface CaKeyStore {
   /** Creates a key for the CA `label`. Refuses to replace an existing key. */
-  createKey(label: string, algorithm: KeyAlgorithm): Promise<CreatedKey>;
+  createKey(label: string, algorithm: KeyAlgorithm, options?: CreateKeyOptions): Promise<CreatedKey>;
+  /**
+   * The private key as PKCS#8, for a store whose keys can leave it. Absent for KMS, whose keys
+   * cannot be exported. The caller owns the result and should wipe it.
+   */
+  exportKey?(keyRef: KeyRef): Promise<Uint8Array>;
   /** A signer for the key. May call AWS (to read the key); cache the result for the life of the process. */
   getSigner(keyRef: KeyRef): Promise<Signer>;
   /** Removes the key. Recoverable for a while where the service allows it. */
@@ -65,4 +79,10 @@ export class KeyStoreError extends Error {
 /** Supplies the secret that the `app-encrypted` protection derives its keys from. */
 export interface EncryptionSecretProvider {
   get(): Promise<Uint8Array>;
+}
+
+/** Chooses a store: by configuration to create a key, by the key's own reference to use one. */
+export interface KeyStoreProvider {
+  forConfig(keyStore: ResolvedKeyStore): CaKeyStore;
+  forRef(keyRef: KeyRef): CaKeyStore;
 }

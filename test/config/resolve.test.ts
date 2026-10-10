@@ -389,6 +389,37 @@ describe('front door', () => {
   });
 });
 
+describe('root key handling', () => {
+  it('rejects an offline root in KMS, which cannot be exported', () => {
+    const input = withValid({ rootCa: { keyHandling: 'offline', keyStore: { backend: 'kms' } } });
+    expect(issuesOf(input)).toEqual([expect.objectContaining({ path: 'rootCa.keyHandling' })]);
+  });
+
+  it('accepts an offline root in Parameter Store or Secrets Manager', () => {
+    expect(issuesOf(withValid({ rootCa: { keyHandling: 'offline' } }))).toEqual([]);
+    const input = withValid({ rootCa: { keyHandling: 'offline', keyStore: { backend: 'secret' } } });
+    expect(issuesOf(input)).toEqual([]);
+  });
+
+  it('keeps a KMS root that is retained', () => {
+    const input = withValid({ rootCa: { keyStore: { backend: 'kms' } } });
+    expect(issuesOf(input)).toEqual([]);
+  });
+});
+
+describe('removal policy and reserved labels', () => {
+  it('retains by default and accepts destroy', () => {
+    expect(resolve(valid).removalPolicy).toBe('retain');
+    expect(resolve(withValid({ removalPolicy: 'destroy' })).removalPolicy).toBe('destroy');
+    expect(issuesOf(withValid({ removalPolicy: 'delete' })).map((i) => i.path)).toContain('removalPolicy');
+  });
+
+  it('keeps the label root for the root CA', () => {
+    const issues = issuesOf(withValid({ subordinateCas: [{ label: 'root' }] }));
+    expect(issues).toEqual([expect.objectContaining({ path: 'subordinateCas[0].label' })]);
+  });
+});
+
 describe('groups and auth', () => {
   it('rejects duplicate group names', () => {
     const input = withValid({ groups: { client: 'users', server: 'users' } });

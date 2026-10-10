@@ -207,6 +207,35 @@ concurrent runs from creating two CAs. The request path never creates
 anything, unlike `main`, where `loadCa` creates tables and CAs lazily on a
 miss.
 
+How it stays safe to repeat and to run concurrently:
+
+- Each attempt gives its keys a fresh _generation_ id in their names
+  (`/<prefix>/ca/<label>/<generation>/key`, alias `alias/aws-ca/<label>/<generation>`),
+  so attempts never collide on a key and a crash leaves at worst an unreferenced
+  key under a unique name.
+- The CA record is the arbiter: it is written with a condition, one attempt wins,
+  and a loser deletes its own key and carries on with the winner's CA. Sub CAs
+  are signed under the _winner's_ root, not the loser's.
+- Running it again when everything exists changes nothing. Adding a subordinate
+  CA to the configuration and deploying again creates just that CA.
+
+**Roles.** The bootstrap function has its own role and is the only identity that
+can use the root CA's key. The runtime role can use the issuing CAs' keys (by
+name for parameters and secrets, by alias condition for KMS) and has an explicit
+`Deny` for the root's, so a broader policy added later cannot reopen it.
+
+**Offline root.** With `rootCa.keyHandling: offline` (not available for a KMS
+root), the bootstrap writes the root key once to a SecureString
+(`/<prefix>/internal/offline/root-ca-key`), then deletes it from its store,
+handing over before removing so a crash repeats the hand-over instead of losing
+the key. The stack output names the parameter; the operator reads it, stores it
+offline and deletes it. Nothing logs the value. Signing a _new_ subordinate CA
+later needs the key restored first, and the bootstrap says so.
+
+**Removal.** `removalPolicy: retain` (default) keeps the table and every key
+when the stack is deleted, because deleting them loses the CA. `destroy` removes
+them, including the keys the bootstrap made, for experiments.
+
 ### 10. Data model
 
 A single DynamoDB table (on-demand, point-in-time recovery on), keyed by CA

@@ -35,6 +35,7 @@ const ROOT_KEY_HANDLING = ['retain', 'offline'] as const satisfies readonly Root
 const OCSP_SIGNING = ['operational', 'kms', 'ca'] as const satisfies readonly OcspSigning[];
 const COGNITO_TIERS = ['lite', 'essentials'] as const satisfies readonly CognitoTier[];
 const ENDPOINT_TYPES = ['regional', 'private'] as const satisfies readonly EndpointType[];
+const REMOVAL_POLICIES = ['retain', 'destroy'] as const;
 const FRONT_DOORS = ['function-url', 'cloudfront', 'http-api', 'rest-api'] as const;
 
 const DAYS_PER_YEAR = 365;
@@ -247,10 +248,16 @@ function resolveRootCa(c: Collector, value: unknown): ResolvedRootCa {
     'validityYears',
     'keyHandling',
   ]);
-  return {
-    ...resolveCa(c, rec, 'rootCa', 'CN=aws-ca Root CA', 20),
-    keyHandling: pick(c, rec.keyHandling, ROOT_KEY_HANDLING, 'rootCa.keyHandling', 'retain'),
-  };
+  const ca = resolveCa(c, rec, 'rootCa', 'CN=aws-ca Root CA', 20);
+  const keyHandling = pick(c, rec.keyHandling, ROOT_KEY_HANDLING, 'rootCa.keyHandling', 'retain');
+  if (keyHandling === 'offline' && ca.keyStore.backend === 'kms') {
+    c.add(
+      'rootCa.keyHandling',
+      'An offline root key has to be exported, and a KMS key cannot be exported. ' +
+        'Use "parameter" or "secret" for the root, or keep it ("retain").',
+    );
+  }
+  return { ...ca, keyHandling };
 }
 
 function resolveProfiles(c: Collector, value: unknown, path: string): Profile[] {
@@ -309,6 +316,8 @@ function resolveSubordinateCas(c: Collector, value: unknown, root: ResolvedRootC
     );
     if (rec.label === undefined) {
       c.add(child(path, 'label'), 'Required.');
+    } else if (label === 'root') {
+      c.add(child(path, 'label'), '"root" is reserved for the root CA.');
     } else if (labels.has(label)) {
       c.add(child(path, 'label'), `Duplicate label "${label}".`);
     }
@@ -574,8 +583,10 @@ export function resolveConfig(input: AwsCaConfigInput = {}): ResolvedConfig {
     'groups',
     'auth',
     'frontDoor',
+    'removalPolicy',
   ]);
 
+  const removalPolicy = pick(c, top.removalPolicy, REMOVAL_POLICIES, 'removalPolicy', 'retain');
   const namePrefix = text(
     c,
     top.namePrefix,
@@ -681,6 +692,7 @@ export function resolveConfig(input: AwsCaConfigInput = {}): ResolvedConfig {
     groups,
     auth,
     frontDoor,
+    removalPolicy,
     warnings,
   };
 }

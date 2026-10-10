@@ -72,6 +72,11 @@ export type FrontDoorInput =
 export interface AwsCaConfigInput {
   /** Prefix for parameter names. Default `/private-ca`. */
   namePrefix?: string;
+  /**
+   * What happens to the CA's data and keys when the stack is deleted. `retain` (default) keeps
+   * them, because deleting them loses the CA; `destroy` is for experiments.
+   */
+  removalPolicy?: 'retain' | 'destroy';
   rootCa?: RootCaInput;
   /** Default: one `issuing` CA that issues both profiles. */
   subordinateCas?: SubordinateCaInput[];
@@ -130,6 +135,7 @@ export type ResolvedFrontDoor =
 
 export interface ResolvedConfig {
   namePrefix: string;
+  removalPolicy: 'retain' | 'destroy';
   rootCa: ResolvedRootCa;
   subordinateCas: ResolvedSubordinateCa[];
   /** Absent when neither SCEP nor OCSP-with-operational-key needs it. */
