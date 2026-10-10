@@ -21,5 +21,14 @@
       { "assertFunctionNames": ["expect", "template.*", "Template.*", "annotations.*"] }
     ]
   },
+  "overrides": [
+    {
+      "files": ["test/**", "scripts/**"],
+      "rules": {
+        // Polling for an index to catch up and paging through results are sequential on purpose.
+        "no-await-in-loop": "off"
+      }
+    }
+  ],
   "ignorePatterns": ["cdk.out/**", "spikes/**"]
 }

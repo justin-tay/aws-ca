@@ -184,6 +184,32 @@ tests.
 **Done when.** A shared contract test suite passes against both the fake and
 (opt-in) real DynamoDB, including a concurrent conditional-write case.
 
+**Status: done; the real-table contract run is written but not yet run.**
+`src/repo`: the `CaRepository` interface, `InMemoryCaRepository`,
+`DynamoCaRepository`, and `TABLE_SCHEMA` (the key layout and index
+definitions that the stack and the integration test both create the table
+from). `test/repo/contract.ts` is one suite run against the in-memory
+implementation on every `npm test` (36 cases, including concurrent creators,
+concurrent serial writers, concurrent revokers, CRL numbers and out-of-order
+publication), plus request-shape tests for the DynamoDB implementation. Notes
+for later slices:
+
+- **The two indexes are eventually consistent.** A certificate stored or
+  revoked a moment ago may not appear in `listCertificatesByOwner` or
+  `listRevoked`. Slice 7's revoke handler must add the certificate it has just
+  revoked to the CRL itself rather than rely on the index, and the contract
+  tests poll for index reads. Base-table reads (`getCa`, `getCertificate`,
+  `getPublishedCrlNumber`, operational certificates) are strongly consistent.
+- There is no "list CAs": the runtime knows the labels from configuration, so
+  no scan is needed.
+- Serials are canonicalised on the way in (lowercase hex, no leading zeros).
+- `listRevoked` takes `notExpiredAt`, so the CRL builder can leave out
+  certificates past `notAfter` as RFC 5280 allows.
+- Expired certificates are removed by DynamoDB TTL 90 days after `notAfter`
+  (`retentionAfterExpiryDays`).
+- Operational certificates have `put`, `list` and `setActive`; the rotation
+  rule (which one is active, when the next is issued) is slice 8's.
+
 ## Slice 5: bootstrap and the first deployable stack (M)
 
 **Goal.** `cdk deploy` produces a table, backend resources and a bootstrapped

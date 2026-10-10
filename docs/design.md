@@ -224,7 +224,15 @@ is already in the endpoint paths.
 - A sparse GSI on `status = R` serves CRL building.
 - Serials are 16 random bytes with the high bit cleared, written with
   `attribute_not_exists` so a collision fails rather than overwrites.
-- DynamoDB TTL removes expired certs after a grace period.
+- DynamoDB TTL removes expired certs 90 days after `notAfter` (configurable).
+- Key attributes are `pk` / `sk`, the owner index is `ownerPk` / `ownerSk` and the
+  sparse revoked index is `revokedPk` / `revokedSk`; `TABLE_SCHEMA` in
+  `src/repo/schema.ts` is the single definition the stack builds the table from.
+  The subject inside the owner index sort key is URL-encoded, so one subject
+  can never be a prefix of another.
+- Both indexes are eventually consistent (DynamoDB cannot read an index
+  consistently). The revoke path therefore includes the certificate it has just
+  revoked in the CRL explicitly (section 11).
 
 ### 11. Revocation and CRL
 
