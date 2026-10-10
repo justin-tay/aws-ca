@@ -11,10 +11,13 @@ import {
 import { AccountRecovery, FeaturePlan, Mfa, UserPool, UserPoolClient } from 'aws-cdk-lib/aws-cognito';
 import { AttributeType, BillingMode, ProjectionType, Table } from 'aws-cdk-lib/aws-dynamodb';
 import { Effect, PolicyStatement, Role, ServicePrincipal } from 'aws-cdk-lib/aws-iam';
+import { Rule, Schedule } from 'aws-cdk-lib/aws-events';
+import { LambdaFunction } from 'aws-cdk-lib/aws-events-targets';
 import { Key } from 'aws-cdk-lib/aws-kms';
 import { Architecture, FunctionUrlAuthType, Runtime } from 'aws-cdk-lib/aws-lambda';
 import { NodejsFunction, OutputFormat } from 'aws-cdk-lib/aws-lambda-nodejs';
 import { LogGroup, RetentionDays } from 'aws-cdk-lib/aws-logs';
+import { BlockPublicAccess, Bucket, BucketEncryption } from 'aws-cdk-lib/aws-s3';
 import { Provider } from 'aws-cdk-lib/custom-resources';
 import type { Construct } from 'constructs';
 import type { ResolvedConfig } from '../src/config';
@@ -47,6 +50,8 @@ export class AwsCaStack extends Stack {
   public readonly bootstrap: CustomResource;
   /** The KMS key that encrypts stored CA keys under `customer-managed-key`, when this stack makes one. */
   public readonly customerManagedKey?: Key;
+  /** Holds each CA's current CRL. Private: the API serves it. */
+  public readonly crlBucket: Bucket;
   public readonly userPool: UserPool;
   public readonly userPoolClient: UserPoolClient;
 
@@ -78,6 +83,13 @@ export class AwsCaStack extends Stack {
       });
     }
 
+    this.crlBucket = new Bucket(this, 'CrlBucket', {
+      blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
+      encryption: BucketEncryption.S3_MANAGED,
+      enforceSSL: true,
+      removalPolicy: removal,
+    });
+
     // -- encryption key for stored CA keys, when asked for and not supplied
     const stores = [
       config.rootCa.keyStore,
@@ -108,6 +120,13 @@ export class AwsCaStack extends Stack {
     this.apiRole = new Role(this, 'ApiRole', { assumedBy: new ServicePrincipal('lambda.amazonaws.com') });
     apiLogs.grantWrite(this.apiRole);
     this.table.grantReadWriteData(this.apiRole);
+    this.apiRole.addToPolicy(
+      new PolicyStatement({
+        sid: 'Crl',
+        actions: ['s3:GetObject', 's3:PutObject'],
+        resources: [this.crlBucket.arnForObjects('crl/*')],
+      }),
+    );
     for (const statement of [
       ...keyAccessStatements(this, config, subLabels, 'runtime'),
       ...rootKeyDenyStatements(this, config),
@@ -176,6 +195,7 @@ export class AwsCaStack extends Stack {
         NAME_PREFIX: config.namePrefix,
         CONFIG: apiConfig,
         USER_POOL_CLIENT_ID: this.userPoolClient.userPoolClientId,
+        CRL_BUCKET: this.crlBucket.bucketName,
         ...(this.customerManagedKey ? { CUSTOMER_MANAGED_KEY_ARN: this.customerManagedKey.keyArn } : {}),
       },
     });
@@ -192,6 +212,13 @@ export class AwsCaStack extends Stack {
     });
     bootstrapLogs.grantWrite(this.bootstrapRole);
     this.table.grantReadWriteData(this.bootstrapRole);
+    this.bootstrapRole.addToPolicy(
+      new PolicyStatement({
+        sid: 'Crl',
+        actions: ['s3:GetObject', 's3:PutObject', 's3:DeleteObject'],
+        resources: [this.crlBucket.arnForObjects('crl/*')],
+      }),
+    );
     const secretPath = `${config.namePrefix}/internal/*`.replace(/^\//, '');
     for (const statement of [
       ...keyAccessStatements(this, config, ['root', ...subLabels], 'admin'),
@@ -215,6 +242,13 @@ export class AwsCaStack extends Stack {
       memorySize: 1024,
       timeout: Duration.minutes(5),
       bundling,
+      environment: {
+        // For the scheduled refresh of the root CA's CRL, which only this function can sign.
+        CONFIG: apiConfig,
+        TABLE_NAME: this.table.tableName,
+        CRL_BUCKET: this.crlBucket.bucketName,
+        ...(this.customerManagedKey ? { CUSTOMER_MANAGED_KEY_ARN: this.customerManagedKey.keyArn } : {}),
+      },
     });
 
     const provider = new Provider(this, 'BootstrapProvider', { onEventHandler: this.bootstrapFunction });
@@ -227,7 +261,15 @@ export class AwsCaStack extends Stack {
       },
     });
     // The roles' permissions must be in place before the function is invoked.
-    this.bootstrap.node.addDependency(this.table, this.bootstrapRole);
+    // The CRL objects are removed by the bootstrap on delete, so the bucket must outlive it.
+    this.bootstrap.node.addDependency(this.table, this.bootstrapRole, this.crlBucket);
+
+    // -- the daily CRL refresh: the issuing CAs by the API function, the root by the bootstrap function
+    new Rule(this, 'CrlRefresh', {
+      description: 'Rebuilds every CA CRL so none runs out unnoticed',
+      schedule: Schedule.rate(Duration.days(1)),
+      targets: [new LambdaFunction(this.apiFunction), new LambdaFunction(this.bootstrapFunction)],
+    });
 
     // -- outputs
     new CfnOutput(this, 'TableName', { value: this.table.tableName });

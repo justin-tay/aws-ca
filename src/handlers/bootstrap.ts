@@ -1,7 +1,8 @@
 import { KMSClient } from '@aws-sdk/client-kms';
+import { S3Client } from '@aws-sdk/client-s3';
 import { SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
 import { SSMClient } from '@aws-sdk/client-ssm';
-import type { CloudFormationCustomResourceEvent } from 'aws-lambda';
+import type { CloudFormationCustomResourceEvent, ScheduledEvent } from 'aws-lambda';
 import {
   bootstrapCas,
   offlineRootKeyParameterName,
@@ -10,6 +11,8 @@ import {
   teardownCas,
 } from '../bootstrap';
 import type { ResolvedConfig } from '../config';
+import { CrlService, S3CrlStore } from '../crl';
+import { createLogger } from '../log';
 import { KeyStoreError, KeyStoreRegistry, createEncryptionSecret, encryptionSecretName } from '../keystore';
 import { DynamoCaRepository, createDocumentClient } from '../repo';
 
@@ -74,7 +77,48 @@ interface Properties {
  * configured to destroy them. Everything it does is repeatable. It never logs the event or any
  * key material.
  */
-export const handler = async (event: CloudFormationCustomResourceEvent): Promise<BootstrapResponse> => {
+const isScheduled = (event: CloudFormationCustomResourceEvent | ScheduledEvent): event is ScheduledEvent =>
+  'detail-type' in event;
+
+let scheduledConfig: ResolvedConfig | undefined;
+
+/**
+ * The daily refresh of the root CA's CRL. The root key is not available to the API function, so
+ * this function, which can use it, does it. It reads what it needs from its own environment.
+ */
+async function refreshRootCrl(): Promise<void> {
+  scheduledConfig ??= JSON.parse(process.env.CONFIG ?? '{}') as ResolvedConfig;
+  const crl = new CrlService({
+    config: scheduledConfig,
+    repository: new DynamoCaRepository({
+      client: createDocumentClient(),
+      tableName: process.env.TABLE_NAME ?? '',
+    }),
+    keyStores: new KeyStoreRegistry({
+      ssm: new SSMClient({}),
+      secretsManager: new SecretsManagerClient({}),
+      kms: new KMSClient({}),
+      namePrefix: scheduledConfig.namePrefix,
+      ...(process.env.CUSTOMER_MANAGED_KEY_ARN
+        ? { customerManagedKeyArn: process.env.CUSTOMER_MANAGED_KEY_ARN }
+        : {}),
+    }),
+    store: new S3CrlStore({ client: new S3Client({}), bucket: process.env.CRL_BUCKET ?? '' }),
+    logger: createLogger(),
+  });
+  const summary = await crl.refreshAll(['root']);
+  if (summary.failed.length > 0) {
+    throw new Error(`The root CRL could not be refreshed: ${summary.failed[0].message}`);
+  }
+}
+
+export const handler = async (
+  event: CloudFormationCustomResourceEvent | ScheduledEvent,
+): Promise<BootstrapResponse | undefined> => {
+  if (isScheduled(event)) {
+    await refreshRootCrl();
+    return undefined;
+  }
   const properties = event.ResourceProperties as unknown as Properties;
   const config = JSON.parse(properties.Config) as ResolvedConfig;
 
@@ -96,6 +140,15 @@ export const handler = async (event: CloudFormationCustomResourceEvent): Promise
       const removed = await teardownCas({ config, keyStores, repository });
       await removeParameter(ssm, encryptionSecretName(config.namePrefix));
       await removeParameter(ssm, offlineRootKeyParameterName(config.namePrefix));
+      // The CRL bucket is deleted with the stack and must be empty by then.
+      const bucket = process.env.CRL_BUCKET;
+      if (bucket !== undefined) {
+        const store = new S3CrlStore({ client: new S3Client({}), bucket });
+        for (const label of ['root', ...config.subordinateCas.map((ca) => ca.label)]) {
+          // oxlint-disable-next-line no-await-in-loop
+          await store.remove(label);
+        }
+      }
       console.info(JSON.stringify({ message: 'removed CA keys', removed }));
     } else {
       console.info(JSON.stringify({ message: 'kept CA keys', reason: 'removalPolicy is retain' }));
@@ -129,6 +182,21 @@ export const handler = async (event: CloudFormationCustomResourceEvent): Promise
       rootKeyExported: result.rootKeyExported,
     }),
   );
+  // A first CRL for every CA, so the CRL URLs work as soon as the stack does.
+  const bucket = process.env.CRL_BUCKET;
+  if (bucket !== undefined) {
+    const crl = new CrlService({
+      config,
+      repository,
+      keyStores,
+      store: new S3CrlStore({ client: new S3Client({}), bucket }),
+      logger: createLogger(),
+    });
+    const summary = await crl.refreshAll(result.cas.map((ca) => ca.label));
+    if (summary.failed.length > 0) {
+      throw new Error(`A CRL could not be published: ${summary.failed[0].message}`);
+    }
+  }
   const root = result.cas.find((ca) => ca.label === 'root');
   return {
     PhysicalResourceId: PHYSICAL_ID,

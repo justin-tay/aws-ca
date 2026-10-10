@@ -312,6 +312,42 @@ describe('authentication and the endpoint', () => {
   });
 });
 
+describe('the CRL', () => {
+  const stack = stackFor();
+  const template = Template.fromStack(stack);
+
+  it('lives in a private, encrypted bucket that insists on TLS', () => {
+    template.hasResourceProperties('AWS::S3::Bucket', {
+      PublicAccessBlockConfiguration: {
+        BlockPublicAcls: true,
+        BlockPublicPolicy: true,
+        IgnorePublicAcls: true,
+        RestrictPublicBuckets: true,
+      },
+    });
+    template.hasResourceProperties('AWS::S3::BucketPolicy', {
+      PolicyDocument: {
+        Statement: Match.arrayWith([
+          Match.objectLike({ Effect: 'Deny', Condition: { Bool: { 'aws:SecureTransport': 'false' } } }),
+        ]),
+      },
+    });
+  });
+
+  it('is written by the API for the issuing CAs and by the bootstrap for the root', () => {
+    for (const role of ['api', 'bootstrap'] as const) {
+      const actions = allows(statementsOf(stack, role)).flatMap(actionsOf);
+      expect(actions).toEqual(expect.arrayContaining(['s3:GetObject', 's3:PutObject']));
+    }
+  });
+
+  it('is rebuilt every day by both functions', () => {
+    template.hasResourceProperties('AWS::Events::Rule', { ScheduleExpression: 'rate(1 day)' });
+    const rule = Object.values(template.findResources('AWS::Events::Rule'))[0];
+    expect(rule.Properties.Targets).toHaveLength(2);
+  });
+});
+
 describe('outputs and warnings', () => {
   it('reports the table and the root fingerprint', () => {
     const template = Template.fromStack(stackFor());

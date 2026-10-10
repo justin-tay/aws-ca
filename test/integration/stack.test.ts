@@ -11,7 +11,7 @@ import {
   AdminSetUserPasswordCommand,
   CognitoIdentityProviderClient,
 } from '@aws-sdk/client-cognito-identity-provider';
-import { X509Certificate, X509Certificates } from '@peculiar/x509';
+import { X509Certificate, X509Certificates, X509Crl } from '@peculiar/x509';
 import { clientKey, makeCsr } from '../ca/helpers';
 import { DynamoCaRepository, createDocumentClient } from '../../src/repo';
 
@@ -148,6 +148,38 @@ const region = process.env.AWS_REGION ?? 'ap-southeast-1';
     const [leaf, issuing] = [...new X509Certificates(new Uint8Array(bytes))];
     expect(leaf.subject).toBe(`CN=${username}`);
     expect(await leaf.verify({ publicKey: issuing, signatureOnly: true })).toBe(true);
+
+    // The CRL exists from the first deployment, for the root and the issuing CA, and is still empty.
+    const base = endpoint.replace('/.well-known/est', '');
+    const crlOf = async (label: string): Promise<X509Crl> => {
+      const crl = await fetch(`${base}/crl/${label}.crl`);
+      expect(crl.status).toBe(200);
+      expect(crl.headers.get('content-type')).toBe('application/pkix-crl');
+      return new X509Crl(new Uint8Array(await crl.arrayBuffer()));
+    };
+    expect((await crlOf('root')).entries).toHaveLength(0);
+    expect((await crlOf('issuing')).entries).toHaveLength(0);
+    // The certificate carries the URL it was issued under.
+    expect(leaf.toString('text')).toContain(`${base}/crl/issuing.crl`);
+
+    // Revocation: someone else's certificate is "not found", the owner's is revoked, and the CRL
+    // lists it straight away (the revoked index may lag; the revoke path adds the certificate).
+    const revoke = (secret: string, serialNumber: string): Promise<Response> =>
+      fetch(`${base}/ca/issuing/revoke`, {
+        method: 'POST',
+        headers: {
+          authorization: `Basic ${Buffer.from(`${username}:${secret}`).toString('base64')}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ serialNumber, reason: 'keyCompromise' }),
+      });
+    expect((await revoke(password, 'abcdef0123456789')).status).toBe(404);
+    const revoked = await revoke(password, leaf.serialNumber);
+    expect(revoked.status).toBe(200);
+    expect(await revoked.json()).toMatchObject({ crlPublished: true });
+    const serials = (await crlOf('issuing')).entries.map((entry) => entry.serialNumber.replace(/^0+/, ''));
+    expect(serials).toEqual([leaf.serialNumber.replace(/^0+/, '')]);
+    expect((await revoke(password, leaf.serialNumber)).status).toBe(409);
   });
 
   it('adds a CA on update and leaves the existing ones alone', async () => {

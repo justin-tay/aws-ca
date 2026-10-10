@@ -336,6 +336,39 @@ CDP in issued certs.
 - `openssl verify -crl_check` rejects a revoked leaf using the served CRL.
 - A user cannot revoke another user's cert; an `est-admin` can.
 
+**Status: implemented; the deployed check is written but not yet run.**
+`src/crl`, `src/revocation`, `src/auth/request.ts`. Notes for later slices:
+
+- API: `POST /ca/<ca>/revoke` (Basic auth, JSON `{serialNumber, reason?}`) and
+  `GET /crl/<ca>.crl` (DER, public). The reasons a caller may give exclude
+  `certificateHold` and `removeFromCRL`, which would make revocation undoable.
+  Not found and not owned answer alike (404).
+- A CRL is rebuilt from the revoked index plus the certificate just revoked. The
+  CRL number is taken **before** the list is read: with that order, the build
+  holding the higher number always read after the other's number was taken,
+  which was after its commit, so two concurrent revocations both appear. The
+  residual risk is index lag on a certificate revoked by someone else within
+  milliseconds of the build; the daily refresh and the next revocation repair it.
+- A writer that finds a newer number published after its own write rebuilds
+  (up to 3 times); one that loses the conditional publish stops and leaves the
+  object to the newer writer.
+- The bucket (private, S3-managed encryption, TLS only) holds `crl/<ca>.crl`. The
+  API function serves it; slice 10 can put CloudFront in front.
+- The daily refresh is an EventBridge **rule** (`rate(1 day)`) with two targets,
+  not Scheduler: it is free and needs nothing more. The API function refreshes
+  the issuing CAs; the bootstrap function refreshes the root, because only it can
+  use the root key. The bootstrap also writes a first CRL for every CA on each
+  deployment, so the URLs work as soon as the stack does.
+- Issued certificates carry `<base>/crl/<ca>.crl` as CRL distribution point. The
+  base is `PUBLIC_BASE_URL` if set, otherwise the Function URL's own domain
+  (set by Lambda, not by the client). Certificates keep the URL they were issued
+  with, so changing the front door later strands old ones' CDP.
+- The sub CA certificates still have no CDP (the URL is unknown at bootstrap
+  time); the root CRL exists but nothing points at it yet. Decide in slice 10,
+  when a stable domain can be configured.
+- The ASN.1 encoder checks `instanceof Date`; `CrlService` rebuilds dates so a
+  record from another realm (as in Jest) cannot break it.
+
 ## Slice 8: operational key and OCSP (M)
 
 **Goal.** Operational cert issuance and rotation, and the OCSP responder.

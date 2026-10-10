@@ -4,13 +4,16 @@ export interface HttpRequest {
   path: string;
   headers: Record<string, string>;
   body: Uint8Array;
+  /** The public base URL of this service with no trailing slash, for URLs written into certificates. */
+  baseUrl?: string;
 }
 
 export interface HttpResponse {
   status: number;
   headers: Record<string, string>;
-  /** Always text: EST responses are base64 or plain text. */
+  /** Text, or base64 when `isBase64Encoded` (a CRL is binary). */
   body: string;
+  isBase64Encoded?: boolean;
 }
 
 export const text = (status: number, body: string, headers: Record<string, string> = {}): HttpResponse => ({

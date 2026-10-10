@@ -10,6 +10,16 @@ const KMS = 'arn:<AWS::Partition>:kms:<AWS::Region>:<AWS::AccountId>';
 /** Every wildcard the stack deliberately uses, and why. Anything not listed fails the test. */
 const ACKNOWLEDGED: { id: string; reason: string }[] = [
   {
+    id: 'AwsSolutions::AwsSolutions-S1',
+    reason:
+      'The bucket holds only public CRLs, which are not secret; access logs would cost more than they show.',
+  },
+  {
+    id: 'AwsSolutions::AwsSolutions-IAM5[Resource::<CrlBucket56B6A239.Arn>/crl/*]',
+    reason:
+      'One object per CA under crl/, named by CA label; the labels are not known to IAM as separate resources.',
+  },
+  {
     id: 'AwsSolutions::AwsSolutions-COG2',
     reason:
       'Clients enroll over Basic authentication (USER_PASSWORD_AUTH), which cannot complete an MFA challenge.',

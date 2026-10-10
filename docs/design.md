@@ -275,14 +275,17 @@ is already in the endpoint paths.
   members of the Cognito group `est-admin` may revoke any cert in the CA.
   Reasons are accepted from the caller (default `unspecified`; `keyCompromise`
   allowed).
+- **Numbering**: take the CRL number before reading the list, so the higher
+  number always saw the other revocation (see the plan, slice 7).
 - **CRL is built from the database**, not by parsing the previous CRL (which is
   what `main` does, and loses entries when two revokes race). Query the sparse
   revoked-GSI for the CA, sign a fresh CRL, and take `crlNumber` from an atomic
   counter on the CA record.
 - **Publishing** is a conditional update on the `CRL#` item that only accepts a
   higher `crlNumber`, so a slow revoke cannot overwrite a newer CRL.
-- **Triggers**: synchronously on every revoke, and a daily EventBridge
-  Scheduler job, so a CRL never expires unnoticed. Entries for certs past
+- **Triggers**: synchronously on every revoke, and a daily EventBridge rule
+  (the API function for the issuing CAs, the bootstrap function for the root,
+  whose key the runtime role cannot use), so a CRL never expires unnoticed. Entries for certs past
   `notAfter` drop out of the CRL (RFC 5280 allows it).
 - With a KMS CA, each CRL build is one `kms:Sign`.
 - Remember the library workarounds from spike 1: CRL entry serials with the high

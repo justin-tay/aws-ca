@@ -1,5 +1,5 @@
 import { X509Certificate } from '@peculiar/x509';
-import { AuthError, parseBasicAuthorization, type Authenticator } from '../auth';
+import { authErrorResponse, authenticateRequest, isResponse, type Authenticator } from '../auth';
 import { CsrError, canonicalSerial, issueCertificate, parseCsr, type Signer } from '../ca';
 import type { ResolvedConfig } from '../config';
 import { text, type HttpRequest, type HttpResponse } from '../http';
@@ -66,9 +66,6 @@ function pkcs7(certificates: X509Certificate[]): HttpResponse {
   };
 }
 
-const challenge = (): HttpResponse =>
-  text(401, 'Authentication is required.', { 'www-authenticate': 'Basic realm="aws-ca"' });
-
 /** The EST server (RFC 7030): `cacerts`, `simpleenroll` and `simplereenroll`. */
 export class EstServer {
   private readonly signers = new Map<string, Promise<Signer>>();
@@ -100,11 +97,9 @@ export class EstServer {
         ? await this.enroll(request, ca, route.operation === 'simplereenroll')
         : text(405, 'Use POST.', { allow: 'POST' });
     } catch (error) {
-      if (error instanceof AuthError) {
-        this.logger.warn('authentication unavailable', { code: error.code });
-        return error.code === 'rate-limited'
-          ? text(429, 'Too many requests.', { 'retry-after': '1' })
-          : text(503, 'Authentication is unavailable.');
+      const authFailure = authErrorResponse(error, this.logger);
+      if (authFailure) {
+        return authFailure;
       }
       this.logger.error('unhandled error', { error });
       return text(500, 'Internal error.');
@@ -139,14 +134,9 @@ export class EstServer {
   }
 
   private async enroll(request: HttpRequest, ca: CaRecord, renewal: boolean): Promise<HttpResponse> {
-    const credentials = parseBasicAuthorization(request.headers.authorization);
-    if (!credentials) {
-      return challenge();
-    }
-    const user = await this.deps.authenticator.authenticate(credentials.username, credentials.password);
-    if (!user) {
-      this.logger.warn('authentication failed', { username: credentials.username.slice(0, 64) });
-      return challenge();
+    const user = await authenticateRequest(request, this.deps.authenticator, this.logger);
+    if (isResponse(user)) {
+      return user;
     }
 
     const contentType = (request.headers['content-type'] ?? '').split(';')[0].trim().toLowerCase();
@@ -192,6 +182,7 @@ export class EstServer {
         notBefore: new Date(now.getTime() - CLOCK_SKEW_MS),
         notAfter,
         subjectAltNames: decision.subjectAltNames,
+        ...(request.baseUrl === undefined ? {} : { crlUrls: [`${request.baseUrl}/crl/${ca.label}.crl`] }),
       });
       const serial = canonicalSerial(certificate.serialNumber);
       // Recorded before it is returned: a certificate nobody can find must never leave the CA.
