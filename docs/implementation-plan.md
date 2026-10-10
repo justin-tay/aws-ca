@@ -386,7 +386,8 @@ AIA in issued certs.
 - Rotation produces a new operational cert and the old one stops being used,
   with no OCSP gap (test with the fake clock).
 
-**Status: implemented; the deployed check is written but not yet run.**
+**Status: done and verified against real AWS (delegated key issued at deploy,
+OCSP good then revoked over HTTPS, signed by the delegated certificate).**
 `src/operational`, `src/ocsp`. Notes for later slices (SCEP in particular):
 
 - A CA's delegated keys are stored under the labels `<ca>-ops` (the RSA

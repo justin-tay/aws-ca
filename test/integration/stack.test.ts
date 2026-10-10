@@ -128,7 +128,7 @@ const region = process.env.AWS_REGION ?? 'ap-southeast-1';
     expect(cacerts.status).toBe(200);
     const caChain = [
       ...new X509Certificates(
-        new Uint8Array(Buffer.from((await cacerts.text()).replaceAll(/s+/g, ''), 'base64')),
+        new Uint8Array(Buffer.from((await cacerts.text()).replaceAll(/\s+/g, ''), 'base64')),
       ),
     ];
 
@@ -184,7 +184,7 @@ const region = process.env.AWS_REGION ?? 'ap-southeast-1';
       if (!hasOpenssl) {
         return;
       }
-      const rootPem = caChain.map((certificate) => certificate.toString('pem')).join('');
+      const rootPem = caChain.map((certificate) => certificate.toString('pem')).join('\n');
       const dir = workDir({
         'leaf.pem': leaf.toString('pem'),
         'issuing.pem': issuing.toString('pem'),
