@@ -65,19 +65,20 @@ Each CA chooses its backend independently (`parameter | secret | kms`).
 the TBS with `@peculiar/asn1-x509` and signing externally. This is the first
 spike.
 
-**Parameter and Secret** hold plain PKCS#8, protected by `keyProtection`:
+**Parameter and Secret** hold plain PKCS#8, protected according to
+`keyStore.protection`:
 
-| Value      | Meaning                                                                                     | Extra cost |
-| ---------- | ------------------------------------------------------------------------------------------- | ---------- |
-| `managed`  | AWS-managed key only. Anyone who can read the parameter can decrypt it in the console.      | $0         |
-| `app-wrap` | **Default.** AES-256-GCM over the PKCS#8 DER, key from HKDF over a random wrap secret.      | $0         |
-| `cmk`      | Customer-managed KMS key whose policy allows decrypt only to the Lambda role. Real control. | $1/month   |
+| Value                  | Meaning                                                                                      | Extra cost |
+| ---------------------- | -------------------------------------------------------------------------------------------- | ---------- |
+| `aws-managed-key`      | AWS-managed key only. Anyone who can read the parameter can decrypt it in the console.       | $0         |
+| `app-encrypted`        | **Default.** AES-256-GCM over the PKCS#8 DER, key from HKDF over a random encryption secret. | $0         |
+| `customer-managed-key` | Customer-managed KMS key whose policy allows decrypt only to the Lambda role. Real control.  | $1/month   |
 
-The wrap secret is a random 256-bit value generated at bootstrap by the custom
+The encryption secret is a random 256-bit value generated at bootstrap by the custom
 resource and stored in a separate SSM SecureString under a different prefix
-(`/<prefix>/internal/wrap`). It is never in the Lambda environment, the
-CloudFormation template or CDK context. `app-wrap` only defeats casual console
-browsing; it is not a substitute for `cmk`. The hardcoded default pepper from
+(`/<prefix>/internal/encryption-secret`). It is never in the Lambda environment, the
+CloudFormation template or CDK context. `app-encrypted` only defeats casual console
+browsing; it is not a substitute for `customer-managed-key`. The hardcoded default pepper from
 `main` is removed.
 
 ### 4. PKI hierarchy
@@ -113,7 +114,7 @@ used only to issue leaf certs and sign CRLs.
 - RSA key, cert issued by the Sub CA with EKUs `id-kp-OCSPSigning` and
   `id-kp-cmcRA`.
 - Stored in `parameter` or `secret` (`operationalKeyStore`, default
-  `parameter`), using the same `keyProtection` options.
+  `parameter`), using the same `protection` options.
 - Rotated on a schedule by having the CA issue a new cert.
 - **Not KMS**: SCEP clients wrap the content key with RSA PKCS#1 v1.5, which KMS
   asymmetric `Decrypt` does not support (confirmed against the KMS docs:
@@ -195,7 +196,7 @@ HTTP`), and HTTP/3 must be off. The `cloudfront` level therefore creates two
 ### 9. Bootstrap
 
 Explicit, idempotent bootstrap by a CloudFormation custom resource that creates
-the Root and Sub CA(s) and the wrap secret. A conditional write prevents two
+the Root and Sub CA(s) and the encryption secret. A conditional write prevents two
 concurrent runs from creating two CAs. The request path never creates
 anything, unlike `main`, where `loadCa` creates tables and CAs lazily on a
 miss.
@@ -269,7 +270,7 @@ interface CaKeyStore {
 ```
 
 - Implementations: `ParameterKeyStore`, `SecretKeyStore`, `KmsKeyStore`.
-- `app-wrap` and `cmk` protection are a decorator around the first two.
+- `app-encrypted` and `customer-managed-key` protection are a decorator around the first two.
 - The `Signer` to `CryptoKey` adapter from spike 1 is shared code.
 - **The `keyRef` in the CA record is authoritative.** The configured backend
   applies only when a CA is created. Changing it later does not re-key or move

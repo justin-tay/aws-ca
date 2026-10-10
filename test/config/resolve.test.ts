@@ -39,8 +39,8 @@ describe('defaults', () => {
     ]);
   });
 
-  it('keeps keys in Parameter Store wrapped by the app, and retains the root key', () => {
-    expect(config.rootCa.keyStore).toEqual({ backend: 'parameter', protection: 'app-wrap' });
+  it('keeps keys in Parameter Store, encrypted by the app, and retains the root key', () => {
+    expect(config.rootCa.keyStore).toEqual({ backend: 'parameter', protection: 'app-encrypted' });
     expect(config.rootCa.keyHandling).toBe('retain');
   });
 
@@ -59,7 +59,7 @@ describe('defaults', () => {
       nextUpdateHours: 4,
     });
     expect(config.operationalKey).toEqual({
-      keyStore: { backend: 'parameter', protection: 'app-wrap' },
+      keyStore: { backend: 'parameter', protection: 'app-encrypted' },
       modulusLength: 2048,
       validityDays: 365,
     });
@@ -180,22 +180,24 @@ describe('key stores', () => {
   });
 
   it('rejects a protection for the KMS backend', () => {
-    const input = withValid({ rootCa: { keyStore: { backend: 'kms', protection: 'app-wrap' } } });
+    const input = withValid({ rootCa: { keyStore: { backend: 'kms', protection: 'app-encrypted' } } });
     expect(issuesOf(input)).toEqual([expect.objectContaining({ path: 'rootCa.keyStore.protection' })]);
   });
 
-  it('only allows kmsKeyArn with the cmk protection', () => {
+  it('only allows kmsKeyArn with the customer-managed-key protection', () => {
     const arn = 'arn:aws:kms:ap-southeast-1:123456789012:key/1234abcd-12ab-34cd-56ef-1234567890ab';
     expect(issuesOf(withValid({ rootCa: { keyStore: { backend: 'secret', kmsKeyArn: arn } } }))).toEqual([
       expect.objectContaining({ path: 'rootCa.keyStore.kmsKeyArn' }),
     ]);
-    const withCmk = { rootCa: { keyStore: { backend: 'secret', protection: 'cmk', kmsKeyArn: arn } } };
+    const withCmk = {
+      rootCa: { keyStore: { backend: 'secret', protection: 'customer-managed-key', kmsKeyArn: arn } },
+    };
     expect(issuesOf(withValid(withCmk))).toEqual([]);
   });
 
   it('rejects a malformed kmsKeyArn', () => {
     const input = withValid({
-      rootCa: { keyStore: { backend: 'parameter', protection: 'cmk', kmsKeyArn: 'nope' } },
+      rootCa: { keyStore: { backend: 'parameter', protection: 'customer-managed-key', kmsKeyArn: 'nope' } },
     });
     expect(issuesOf(input).map((i) => i.path)).toContain('rootCa.keyStore.kmsKeyArn');
   });
@@ -451,7 +453,11 @@ describe('malformed shapes', () => {
       rootCa: { subject: 'CN=Example Root,O=Example', validityYears: 25, keyHandling: 'offline' },
       subordinateCas: [
         { label: 'clients', profiles: ['client'], algorithm: { type: 'rsa', modulusLength: 3072 } },
-        { label: 'servers', profiles: ['server'], keyStore: { backend: 'secret', protection: 'managed' } },
+        {
+          label: 'servers',
+          profiles: ['server'],
+          keyStore: { backend: 'secret', protection: 'aws-managed-key' },
+        },
       ],
       operationalKey: { backend: 'secret', modulusLength: 3072, validityDays: 180 },
       ocsp: { signing: 'kms', maxAgeSeconds: 0, nextUpdateHours: 24 },
@@ -463,7 +469,7 @@ describe('malformed shapes', () => {
       frontDoor: { type: 'rest-api', endpointType: 'private', vpcEndpointId: 'vpce-0abc123' },
     });
     expect(config.subordinateCas.map((ca) => ca.label)).toEqual(['clients', 'servers']);
-    expect(config.operationalKey?.keyStore).toEqual({ backend: 'secret', protection: 'app-wrap' });
+    expect(config.operationalKey?.keyStore).toEqual({ backend: 'secret', protection: 'app-encrypted' });
     expect(config.rootCa.keyHandling).toBe('offline');
   });
 });

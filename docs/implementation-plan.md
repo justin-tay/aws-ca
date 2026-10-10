@@ -31,7 +31,7 @@ Sizes: S is under a day, M is a few days, L is about a week. They are rough.
 bin/aws-ca.ts                 CDK app entry: loads and validates config
 lib/                          stack and constructs (thin)
 src/config/                   types, defaults, validation (pure)
-src/keystore/                 CaKeyStore + parameter, secret, kms, wrap decorator
+src/keystore/                 CaKeyStore + parameter, secret, kms, app-encrypted decorator
 src/ca/                       issuance, CRL, OCSP building, policy (pure, no AWS)
 src/repo/                     DynamoDB single-table repository + in-memory fake
 src/protocols/{est,scep}/     codecs and handlers
@@ -128,20 +128,20 @@ hundred entries exceeds that. The `Signer` must hash locally and use
 
 **Goal.** `CaKeyStore` with the three backends and the protection decorator.
 
-**Scope.** `ParameterKeyStore`, `SecretKeyStore`, `KmsKeyStore`; `app-wrap`
-(AES-256-GCM, HKDF from the wrap secret) and `cmk` protection; `keyRef` types;
+**Scope.** `ParameterKeyStore`, `SecretKeyStore`, `KmsKeyStore`; `app-encrypted`
+(AES-256-GCM, HKDF from the encryption secret) and `customer-managed-key` protection; `keyRef` types;
 generation of keys (WebCrypto for exportable, `kms:CreateKey` for KMS).
 
 **Done when.**
 
 - Unit tests with `aws-sdk-client-mock`: round trip for each backend, wrong
-  wrap secret fails, tampered ciphertext fails, no plaintext PKCS#8 in the
-  stored value for `app-wrap`.
+  encryption secret fails, tampered ciphertext fails, no plaintext PKCS#8 in the
+  stored value for `app-encrypted`.
 - Opt-in integration test (`test:aws`): a real KMS key signs a cert that
   `openssl` verifies; a real SecureString and secret round trip.
 
 **Risks.** PKCS#8 export of ECDSA and RSA keys through Node `crypto` is
-straightforward; the wrap format needs a version byte so it can change later.
+straightforward; the stored format needs a version byte so it can change later.
 
 ## Slice 4: repository (S/M)
 
@@ -161,7 +161,7 @@ tests.
 Root and Sub CA.
 
 **Scope.** Stack wiring from config; the bootstrap custom-resource Lambda
-(idempotent, conditional CA creation, wrap secret generation, Root signing the
+(idempotent, conditional CA creation, encryption secret generation, Root signing the
 Sub CA, `rootKeyHandling: 'retain' | 'offline'`); separate admin role holding
 Root key access; runtime role without it; stack outputs.
 
@@ -275,7 +275,7 @@ the integration suite for this slice small.
 
 **Scope.** `cdk-nag` clean (documented suppressions only); log-redaction and
 least-privilege tests; README with the cost table and the front-door decision
-guide; runbooks (Root offline export, CA renewal, trust store update, wrap
+guide; runbooks (Root offline export, CA renewal, trust store update, encryption
 secret rotation, destroy); the opt-in integration suite wired to a script;
 a final pass for the "Open items" in design.md.
 

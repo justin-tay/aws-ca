@@ -8,8 +8,8 @@ export default defineConfig({
   policy: { allowedDomainSuffixes: ['example.internal'] },
 
   // Where CA keys live: 'parameter' (free), 'secret' (about $0.40/month), 'kms' (about $1/month).
-  rootCa: { keyStore: { backend: 'parameter', protection: 'app-wrap' } },
-  subordinateCas: [{ label: 'issuing', keyStore: { backend: 'parameter', protection: 'app-wrap' } }],
+  rootCa: { keyStore: { backend: 'parameter', protection: 'app-encrypted' } },
+  subordinateCas: [{ label: 'issuing', keyStore: { backend: 'parameter', protection: 'app-encrypted' } }],
 
   // 'cloudfront' (default), 'function-url', 'http-api' or 'rest-api'.
   frontDoor: { type: 'cloudfront' },

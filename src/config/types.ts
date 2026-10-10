@@ -4,7 +4,7 @@
 
 export type KeyBackend = 'parameter' | 'secret' | 'kms';
 /** How a key held in a parameter or secret is protected at rest. Not applicable to `kms`. */
-export type KeyProtection = 'managed' | 'app-wrap' | 'cmk';
+export type KeyProtection = 'aws-managed-key' | 'app-encrypted' | 'customer-managed-key';
 export type EcCurve = 'P-256' | 'P-384' | 'P-521';
 export type RsaModulusLength = 2048 | 3072 | 4096;
 export type KeyAlgorithm =
@@ -19,7 +19,7 @@ export type EndpointType = 'regional' | 'private';
 export interface KeyStoreInput {
   backend?: KeyBackend;
   protection?: KeyProtection;
-  /** An existing KMS key or alias to use when `protection` is `cmk`. Created by the stack if omitted. */
+  /** An existing KMS key or alias to use when `protection` is `customer-managed-key`. Created by the stack if omitted. */
   kmsKeyArn?: string;
 }
 

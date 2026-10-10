@@ -23,7 +23,11 @@ import type {
 type Rec = Record<string, unknown>;
 
 const BACKENDS = ['parameter', 'secret', 'kms'] as const satisfies readonly KeyBackend[];
-const PROTECTIONS = ['managed', 'app-wrap', 'cmk'] as const satisfies readonly KeyProtection[];
+const PROTECTIONS = [
+  'aws-managed-key',
+  'app-encrypted',
+  'customer-managed-key',
+] as const satisfies readonly KeyProtection[];
 const CURVES = ['P-256', 'P-384', 'P-521'] as const;
 const MODULUS_LENGTHS = [2048, 3072, 4096] as const satisfies readonly RsaModulusLength[];
 const PROFILES = ['client', 'server'] as const satisfies readonly Profile[];
@@ -199,10 +203,10 @@ function resolveKeyStore(
     }
     return { backend: 'kms' };
   }
-  const protection = pick(c, rec.protection, PROTECTIONS, child(path, 'protection'), 'app-wrap');
+  const protection = pick(c, rec.protection, PROTECTIONS, child(path, 'protection'), 'app-encrypted');
   const resolved: ResolvedKeyStore = { backend, protection };
   if (rec.kmsKeyArn !== undefined) {
-    if (protection === 'cmk') {
+    if (protection === 'customer-managed-key') {
       resolved.kmsKeyArn = text(
         c,
         rec.kmsKeyArn,
@@ -212,7 +216,7 @@ function resolveKeyStore(
         '',
       );
     } else {
-      c.add(child(path, 'kmsKeyArn'), 'Only valid with protection "cmk".');
+      c.add(child(path, 'kmsKeyArn'), 'Only valid with protection "customer-managed-key".');
     }
   }
   return resolved;
