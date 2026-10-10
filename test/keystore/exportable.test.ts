@@ -39,7 +39,7 @@ function parameterBackend(): Backend {
   return {
     name: 'parameter',
     values: new ParameterValueStore(ssm.client),
-    path: '/aws-ca/ca/root/key',
+    path: '/private-ca/ca/root/key',
     reads: () => ssm.mock.commandCalls(GetParameterCommand).length,
     get stored() {
       return new Map(
@@ -61,7 +61,7 @@ function secretBackend(): Backend {
   return {
     name: 'secret',
     values: new SecretValueStore(secrets.client),
-    path: 'aws-ca/ca/root/key',
+    path: 'private-ca/ca/root/key',
     reads: () => secrets.mock.commandCalls(GetSecretValueCommand).length,
     get stored() {
       return new Map(
@@ -103,7 +103,7 @@ describe.each([
   ): ExportableKeyStore =>
     new ExportableKeyStore({
       values: backend.values,
-      namePrefix: '/aws-ca',
+      namePrefix: '/private-ca',
       protection: 'app-encrypted',
       encryptionSecret: secretProvider(secret),
       ...overrides,
@@ -219,7 +219,8 @@ describe.each([
   describe('common behaviour', () => {
     it('uses a name under the prefix, without a leading slash for secrets', async () => {
       const { keyRef } = await store().createKey('issuing', ECDSA_P256);
-      const expected = backend.name === 'parameter' ? '/aws-ca/ca/issuing/key' : 'aws-ca/ca/issuing/key';
+      const expected =
+        backend.name === 'parameter' ? '/private-ca/ca/issuing/key' : 'private-ca/ca/issuing/key';
       expect(keyRef.backend === 'kms' ? '' : keyRef.name).toBe(expected);
     });
 
@@ -321,6 +322,29 @@ describe.each([
 });
 
 describe('construction', () => {
+  it.each([['/aws-ca'], ['/AWS'], ['aws'], ['/ssm/ca']])(
+    'refuses the parameter name prefix %s, which Systems Manager reserves',
+    (namePrefix) => {
+      const { client } = fakeSsm();
+      const options = {
+        values: new ParameterValueStore(client),
+        namePrefix,
+        protection: 'aws-managed-key',
+      } as const;
+      expect(() => new ExportableKeyStore(options)).toThrow(/reserves/);
+    },
+  );
+
+  it('allows such a prefix for secrets, where only "aws/" is reserved', () => {
+    const { client } = fakeSecrets();
+    const options = {
+      values: new SecretValueStore(client),
+      namePrefix: '/aws-ca',
+      protection: 'aws-managed-key',
+    } as const;
+    expect(() => new ExportableKeyStore(options)).not.toThrow();
+  });
+
   it('needs an encryption secret for app-encrypted', () => {
     const { client } = fakeSsm();
     expect(

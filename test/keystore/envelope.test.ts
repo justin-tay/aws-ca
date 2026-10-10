@@ -10,7 +10,7 @@ import { KeyStoreError } from '../../src/keystore';
 
 const pkcs8 = new Uint8Array(randomBytes(138)); // the size of an ECDSA P-256 PKCS#8
 const secret = new Uint8Array(randomBytes(32));
-const name = '/aws-ca/ca/root/key';
+const name = '/private-ca/ca/root/key';
 
 describe('plain values', () => {
   it('round trips', () => {
@@ -50,7 +50,7 @@ describe('app-encrypted values', () => {
 
   it('fail under another name, so a value copied to another key does not decrypt', () => {
     const stored = encodeEncrypted(pkcs8, secret, name);
-    expect(() => decodeEncrypted(stored, secret, '/aws-ca/ca/other/key')).toThrow(
+    expect(() => decodeEncrypted(stored, secret, '/private-ca/ca/other/key')).toThrow(
       expect.objectContaining({ code: 'integrity' }),
     );
   });

@@ -14,7 +14,7 @@ const LABEL = /^[a-z0-9][a-z0-9-]{0,31}$/;
 
 export interface ExportableKeyStoreOptions {
   values: ValueStore;
-  /** For example `/aws-ca`. Secrets Manager names drop the leading slash. */
+  /** For example `/private-ca`. Secrets Manager names drop the leading slash. */
   namePrefix: string;
   protection: KeyProtection;
   /** Required for `app-encrypted`. */
@@ -40,6 +40,13 @@ export class ExportableKeyStore implements CaKeyStore {
     }
     if (options.protection === 'customer-managed-key' && !options.kmsKeyId) {
       throw new KeyStoreError('unsupported', 'The customer-managed-key protection needs a KMS key.');
+    }
+    // Found by the first real-AWS run, which no mock would have caught.
+    if (options.values.backend === 'parameter' && /^\/?(aws|ssm)/i.test(options.namePrefix)) {
+      throw new KeyStoreError(
+        'unsupported',
+        `Systems Manager reserves parameter names that start with "aws" or "ssm": ${options.namePrefix}.`,
+      );
     }
   }
 

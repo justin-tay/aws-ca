@@ -19,7 +19,7 @@ const region = process.env.AWS_REGION ?? 'ap-southeast-1';
 
 (enabled ? describe : describe.skip)('key stores against AWS', () => {
   const suffix = randomBytes(4).toString('hex');
-  const namePrefix = `/aws-ca-it-${suffix}`;
+  const namePrefix = `/private-ca-it-${suffix}`;
   const ssm = new SSMClient({ region });
   const secretsManager = new SecretsManagerClient({ region });
   const kms = new KMSClient({ region });

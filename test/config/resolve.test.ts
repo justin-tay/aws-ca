@@ -69,7 +69,7 @@ describe('defaults', () => {
     expect(config.frontDoor).toEqual({ type: 'cloudfront', mtls: false });
     expect(config.auth.cognitoTier).toBe('lite');
     expect(config.groups).toEqual({ client: 'est-client', server: 'est-server', admin: 'est-admin' });
-    expect(config.namePrefix).toBe('/aws-ca');
+    expect(config.namePrefix).toBe('/private-ca');
   });
 });
 
@@ -400,6 +400,16 @@ describe('groups and auth', () => {
       'auth.cognitoTier',
     );
   });
+
+  it.each([['/aws-ca'], ['/AWS/ca'], ['/ssm-ca'], ['/SSM']])(
+    'rejects the name prefix %s, which Systems Manager reserves',
+    (namePrefix) => {
+      const issues = issuesOf(withValid({ namePrefix }));
+      expect(issues).toEqual([
+        expect.objectContaining({ path: 'namePrefix', message: expect.stringContaining('reserves') }),
+      ]);
+    },
+  );
 
   it('rejects a name prefix that is not an absolute parameter path', () => {
     expect(issuesOf(withValid({ namePrefix: 'aws-ca' })).map((i) => i.path)).toContain('namePrefix');

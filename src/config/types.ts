@@ -70,7 +70,7 @@ export type FrontDoorInput =
     };
 
 export interface AwsCaConfigInput {
-  /** Prefix for parameter names. Default `/aws-ca`. */
+  /** Prefix for parameter names. Default `/private-ca`. */
   namePrefix?: string;
   rootCa?: RootCaInput;
   /** Default: one `issuing` CA that issues both profiles. */

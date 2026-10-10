@@ -81,6 +81,12 @@ CloudFormation template or CDK context. `app-encrypted` only defeats casual cons
 browsing; it is not a substitute for `customer-managed-key`. The hardcoded default pepper from
 `main` is removed.
 
+**Parameter names.** Systems Manager rejects parameter names that start with
+`aws` or `ssm` (any case) with `AccessDeniedException: No access to reserved
+parameter name`. `namePrefix` therefore defaults to `/private-ca`, and both the
+configuration and the key store refuse a reserved prefix. This was found by
+the first run against real AWS; a mocked SSM accepts any name.
+
 ### 4. PKI hierarchy
 
 - One Root and a **list** of subordinate CAs. The default is one issuing Sub CA

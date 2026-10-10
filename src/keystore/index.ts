@@ -19,7 +19,7 @@ export interface KeyStoreRegistryOptions {
   ssm: SSMClient;
   secretsManager: SecretsManagerClient;
   kms: KMSClient;
-  /** The configured `namePrefix`, for example `/aws-ca`. */
+  /** The configured `namePrefix`, for example `/private-ca`. */
   namePrefix: string;
   /** The KMS key used for `customer-managed-key` when the configuration does not name one. */
   customerManagedKeyArn?: string;

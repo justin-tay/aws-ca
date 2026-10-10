@@ -44,6 +44,8 @@ const HOST_LABEL = '[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?';
 const HOSTNAME = new RegExp(`^${HOST_LABEL}(\\.${HOST_LABEL})*$`);
 const DOMAIN_SUFFIX = new RegExp(`^\\.?${HOST_LABEL}(\\.${HOST_LABEL})*$`);
 const NAME_PREFIX = /^\/[A-Za-z0-9_.-]+(\/[A-Za-z0-9_.-]+)*$/;
+/** SSM rejects parameter names beginning with "aws" or "ssm", with or without the leading slash. */
+const RESERVED_PARAMETER_PREFIX = /^\/?(aws|ssm)/i;
 const KMS_KEY_ARN = /^arn:aws[a-z-]*:kms:[a-z0-9-]+:\d{12}:(key|alias)\/.+$/;
 const ACM_ARN = /^arn:aws[a-z-]*:acm:([a-z0-9-]+):\d{12}:certificate\/.+$/;
 const GROUP_NAME = /^\S{1,128}$/;
@@ -579,9 +581,16 @@ export function resolveConfig(input: AwsCaConfigInput = {}): ResolvedConfig {
     top.namePrefix,
     'namePrefix',
     NAME_PREFIX,
-    'an absolute parameter path such as /aws-ca',
-    '/aws-ca',
+    'an absolute parameter path such as /private-ca',
+    '/private-ca',
   );
+  if (RESERVED_PARAMETER_PREFIX.test(namePrefix)) {
+    c.add(
+      'namePrefix',
+      'Systems Manager reserves parameter names that start with "aws" or "ssm" (in any case); ' +
+        'choose a prefix such as /private-ca.',
+    );
+  }
   const rootCa = resolveRootCa(c, top.rootCa);
   const subordinateCas = resolveSubordinateCas(c, top.subordinateCas, rootCa);
   const issuing = (profile: Profile): ResolvedSubordinateCa[] =>

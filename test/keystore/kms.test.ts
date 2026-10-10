@@ -132,7 +132,7 @@ describe('KmsKeyStore.getSigner', () => {
   it('rejects a reference for another backend', async () => {
     const other: KeyRef = {
       backend: 'parameter',
-      name: '/aws-ca/ca/root/key',
+      name: '/private-ca/ca/root/key',
       algorithm: ECDSA_P256,
       publicKey: 'AAAA',
       protection: 'aws-managed-key',

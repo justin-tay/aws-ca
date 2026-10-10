@@ -143,11 +143,13 @@ generation of keys (WebCrypto for exportable, `kms:CreateKey` for KMS).
 **Risks.** PKCS#8 export of ECDSA and RSA keys through Node `crypto` is
 straightforward; the stored format needs a version byte so it can change later.
 
-**Status: done, integration test written but not yet run.** `src/keystore`:
+**Status: done, and run against real AWS.** `src/keystore`:
 `ExportableKeyStore` over a `ValueStore` (Parameter Store or Secrets Manager),
-`KmsKeyStore`, `KeyStoreRegistry`, and the encryption secret helpers. 254 unit
-tests. The opt-in `npm run test:aws -- --yes` needs a real account and creates
-a KMS key, so it is run deliberately. Differences from the scope above:
+`KmsKeyStore`, `KeyStoreRegistry`, and the encryption secret helpers. 263 unit
+tests, plus `npm run test:aws -- --yes` (a real KMS key, SecureString and
+secret; run deliberately, a few cents). The real run found one bug the mocks
+could not: SSM reserves names starting with `aws`, so the default `namePrefix`
+became `/private-ca`. Differences from the scope above:
 
 - One `ExportableKeyStore` takes the value store as a parameter instead of
   separate Parameter and Secret classes; protection is an option of it, not a

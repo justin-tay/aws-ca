@@ -21,12 +21,12 @@ mockClient(KMSClient);
 
 describe('the encryption secret', () => {
   it('is named under the prefix, apart from the keys', () => {
-    expect(encryptionSecretName('/aws-ca')).toBe('/aws-ca/internal/encryption-secret');
+    expect(encryptionSecretName('/private-ca')).toBe('/private-ca/internal/encryption-secret');
   });
 
   it('is created once, as 32 random bytes in a SecureString', async () => {
     const ssm = fakeSsm();
-    await createEncryptionSecret(ssm.client, '/aws-ca/internal/encryption-secret');
+    await createEncryptionSecret(ssm.client, '/private-ca/internal/encryption-secret');
     const input = ssm.mock.commandCalls(PutParameterCommand)[0].args[0].input;
     expect(input).toMatchObject({ Type: 'SecureString', Overwrite: false });
     expect(Buffer.from(input.Value ?? '', 'base64')).toHaveLength(32);
@@ -88,7 +88,7 @@ function registry(
       ssm: ssm.client,
       secretsManager: secrets.client,
       kms: kmsClient,
-      namePrefix: '/aws-ca',
+      namePrefix: '/private-ca',
       ...overrides,
     }),
   };
@@ -97,10 +97,10 @@ function registry(
 describe('KeyStoreRegistry', () => {
   it('creates a key where the configuration says, then finds it from its own reference', async () => {
     const { ssm, secrets, registry: keys } = registry();
-    await createEncryptionSecret(ssm.client, encryptionSecretName('/aws-ca'));
+    await createEncryptionSecret(ssm.client, encryptionSecretName('/private-ca'));
     const config = { backend: 'secret', protection: 'app-encrypted' } as const;
     const { keyRef } = await keys.forConfig(config).createKey('root', ECDSA_P256);
-    expect(secrets.secrets.has('aws-ca/ca/root/key')).toBe(true);
+    expect(secrets.secrets.has('private-ca/ca/root/key')).toBe(true);
 
     // A new process, and the configuration has since changed to parameter: the reference wins.
     const later = registry({}, { ssm, secrets }).registry;
@@ -134,7 +134,7 @@ describe('KeyStoreRegistry', () => {
       .forConfig({ backend: 'parameter', protection: 'customer-managed-key' })
       .createKey('root', ECDSA_P256);
     expect(keyRef).toMatchObject({ kmsKeyId: CMK });
-    expect(ssm.parameters.get('/aws-ca/ca/root/key')?.KeyId).toBe(CMK);
+    expect(ssm.parameters.get('/private-ca/ca/root/key')?.KeyId).toBe(CMK);
   });
 
   it('prefers the key named in the configuration over the stack-created one', async () => {
