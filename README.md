@@ -25,11 +25,12 @@ certificates. Invalid settings fail `cdk synth` with every problem listed.
 
 ## Commands
 
-| Command              | What it does                                   |
-| -------------------- | ---------------------------------------------- |
-| `npm test`           | Unit tests with coverage (jest, `@swc/jest`)   |
-| `npm run typecheck`  | Type-check the project (`tsc --noEmit`)        |
-| `npm run lint`       | `oxlint` with type-aware rules                 |
-| `npm run format`     | Format with `oxfmt` (`format:check` to verify) |
-| `npm run cdk:synth`  | Synthesize the CloudFormation template         |
-| `npm run cdk:deploy` | Deploy the stack                               |
+| Command                     | What it does                                                      |
+| --------------------------- | ----------------------------------------------------------------- |
+| `npm test`                  | Unit tests with coverage (jest, `@swc/jest`)                      |
+| `npm run typecheck`         | Type-check the project (`tsc --noEmit`)                           |
+| `npm run lint`              | `oxlint` with type-aware rules                                    |
+| `npm run test:aws -- --yes` | Integration tests against real AWS; creates and removes a KMS key |
+| `npm run format`            | Format with `oxfmt` (`format:check` to verify)                    |
+| `npm run cdk:synth`         | Synthesize the CloudFormation template                            |
+| `npm run cdk:deploy`        | Deploy the stack                                                  |

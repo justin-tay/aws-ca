@@ -11,5 +11,5 @@
     "noEmit": true,
     "types": ["jest", "node"]
   },
-  "include": ["bin", "lib", "src", "test"]
+  "include": ["bin", "lib", "src", "test", "scripts"]
 }

@@ -269,15 +269,16 @@ interface CaKeyStore {
 }
 ```
 
-- Implementations: `ParameterKeyStore`, `SecretKeyStore`, `KmsKeyStore`.
-- `app-encrypted` and `customer-managed-key` protection are a decorator around the first two.
+- Implementations: an exportable store over Parameter Store or Secrets Manager
+  (one class, parameterised by the value store) and `KmsKeyStore`.
+- `app-encrypted` and `customer-managed-key` are options of the exportable store.
 - The `Signer` to `CryptoKey` adapter from spike 1 is shared code.
 - **The `keyRef` in the CA record is authoritative.** The configured backend
   applies only when a CA is created. Changing it later does not re-key or move
   an existing CA, and a migration command is out of scope for v1. A runtime
   that followed config over the record could silently look in the wrong store.
-- `spki` is stored in the CA record at bootstrap, so a KMS CA does not call
-  `kms:GetPublicKey` per request.
+- The public key (`spki`) travels inside the `keyRef`, so a KMS CA does not call
+  `kms:GetPublicKey` per request, and every load checks the key against it.
 - **KMS `Sign` with `MessageType: RAW` accepts at most 4096 bytes.** Certificates
   fit, but a CRL with a few hundred entries does not. `KmsKeyStore` therefore
   hashes locally and signs the digest with `MessageType: DIGEST`. Spike 1 used

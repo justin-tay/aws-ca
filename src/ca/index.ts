@@ -14,4 +14,4 @@ export { generateLocalKey, localSignerFromPkcs8, type LocalKey } from './local-s
 export { certificateToPem, crlToPem } from './pem';
 export { derToP1363, RemoteKey, remoteCrypto } from './remote-crypto';
 export { canonicalSerial, generateSerial } from './serial';
-export { webCryptoAlgorithm, type Signer } from './signer';
+export { nodeDigest, webCryptoAlgorithm, type Signer } from './signer';

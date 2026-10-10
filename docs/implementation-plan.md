@@ -143,6 +143,33 @@ generation of keys (WebCrypto for exportable, `kms:CreateKey` for KMS).
 **Risks.** PKCS#8 export of ECDSA and RSA keys through Node `crypto` is
 straightforward; the stored format needs a version byte so it can change later.
 
+**Status: done, integration test written but not yet run.** `src/keystore`:
+`ExportableKeyStore` over a `ValueStore` (Parameter Store or Secrets Manager),
+`KmsKeyStore`, `KeyStoreRegistry`, and the encryption secret helpers. 254 unit
+tests. The opt-in `npm run test:aws -- --yes` needs a real account and creates
+a KMS key, so it is run deliberately. Differences from the scope above:
+
+- One `ExportableKeyStore` takes the value store as a parameter instead of
+  separate Parameter and Secret classes; protection is an option of it, not a
+  decorator (there are only two ways to store the value, so a layer added
+  nothing).
+- `KeyRef` is self-contained (backend, name or ARN, algorithm, base64 public
+  key, protection, KMS key, alias). A reference whose stored value does not
+  match its public key or its protection is refused (`integrity`,
+  `protection-mismatch`), as is a value copied to another key's name (the
+  name is mixed into the encryption key and authenticated).
+- Values are stored as `aws-ca:v1:<kind>:<base64>` so a plain value can never
+  be mistaken for an encrypted one, and a downgrade is detected.
+- Creating never overwrites (`Overwrite: false`, `CreateSecret`, alias
+  uniqueness for KMS); a KMS key whose alias is taken is scheduled for deletion
+  again immediately.
+- KMS signs digests (`MessageType: DIGEST`), so there is no 4096 byte limit.
+- The registry's `forConfig` (create) and `forRef` (use) are separate on
+  purpose: configuration decides where a new key goes, the reference decides
+  where an existing one is.
+- Parameter values use the Standard tier. An `app-encrypted` RSA 4096 key is
+  about 3.3 KB, which fits; larger would need Advanced.
+
 ## Slice 4: repository (S/M)
 
 **Goal.** DynamoDB single-table access behind an interface with a fake.
