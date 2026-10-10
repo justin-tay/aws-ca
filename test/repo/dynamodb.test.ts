@@ -268,3 +268,130 @@ describe('item shapes', () => {
     expect(await repo.getCa('issuing')).toEqual(record);
   });
 });
+
+// DynamoDB validates expressions strictly, and only the real service says so: a placeholder that is
+// defined but unused, a placeholder used but not defined, and a reserved word used as an attribute
+// name are all rejected. Both of the first two real-table failures were of this kind and no mock
+// noticed. This check applies those rules to every request the repository can send.
+describe('every request is a valid DynamoDB expression', () => {
+  // Words DynamoDB reserves that this repository's attributes could plausibly collide with.
+  const RESERVED = new Set([
+    'TYPE',
+    'STATUS',
+    'NAME',
+    'DATA',
+    'KEY',
+    'VALUE',
+    'STATE',
+    'TIME',
+    'TIMESTAMP',
+    'USER',
+    'ROLE',
+    'SOURCE',
+    'TTL',
+    'ACTION',
+    'COUNT',
+  ]);
+  const KEYWORDS = new Set([
+    'SET',
+    'ADD',
+    'REMOVE',
+    'DELETE',
+    'AND',
+    'OR',
+    'NOT',
+    'ATTRIBUTE_EXISTS',
+    'ATTRIBUTE_NOT_EXISTS',
+    'BEGINS_WITH',
+  ]);
+  const EXPRESSIONS = [
+    'UpdateExpression',
+    'ConditionExpression',
+    'KeyConditionExpression',
+    'FilterExpression',
+    'ProjectionExpression',
+  ];
+
+  function problemsIn(input: Record<string, unknown>): string[] {
+    const text = EXPRESSIONS.map((name) => input[name])
+      .filter((value): value is string => typeof value === 'string')
+      .join(' ');
+    const names = Object.keys((input.ExpressionAttributeNames as Record<string, string> | undefined) ?? {});
+    const values = Object.keys(
+      (input.ExpressionAttributeValues as Record<string, unknown> | undefined) ?? {},
+    );
+    const problems: string[] = [];
+    for (const name of names) {
+      if (!text.includes(name)) problems.push(`unused name ${name}`);
+    }
+    for (const value of values) {
+      if (!text.includes(value)) problems.push(`unused value ${value}`);
+    }
+    for (const used of text.match(/#\w+/g) ?? []) {
+      if (!names.includes(used)) problems.push(`undefined name ${used}`);
+    }
+    for (const used of text.match(/:\w+/g) ?? []) {
+      if (!values.includes(used)) problems.push(`undefined value ${used}`);
+    }
+    const bare = text.replaceAll(/[#:]\w+/g, ' ').match(/[A-Za-z_]\w*/g) ?? [];
+    for (const word of bare) {
+      const upper = word.toUpperCase();
+      if (!KEYWORDS.has(upper) && RESERVED.has(upper)) problems.push(`reserved word ${word}`);
+    }
+    return problems;
+  }
+
+  it('uses only defined, used placeholders and no reserved word as a bare name', async () => {
+    dynamo.on(PutCommand).resolves({});
+    dynamo.on(GetCommand).resolves({});
+    dynamo.on(QueryCommand).resolves({ Items: [] });
+    dynamo.on(UpdateCommand).resolves({ Attributes: { ...updated.Attributes, crlNumber: 1 } });
+
+    await repo.createCa(caRecord('issuing'));
+    await repo.getCa('issuing');
+    await repo.putCertificate(certRecord('issuing', 'aa'));
+    await repo.getCertificate('issuing', 'aa');
+    await repo.listCertificatesByOwner('alice');
+    await repo.listCertificatesByOwner('alice', { subject: 'CN=alice', limit: 2 });
+    await repo.revokeCertificate('issuing', 'aa', { revokedAt: new Date(), reason: 1 });
+    await repo.revokeCertificate('issuing', 'aa', { revokedAt: new Date() });
+    await repo.listRevoked('issuing');
+    await repo.listRevoked('issuing', { notExpiredAt: new Date() });
+    await repo.nextCrlNumber('issuing');
+    await repo.publishCrl('issuing', 1);
+    await repo.getPublishedCrlNumber('issuing');
+    await repo.putOperationalCertificate(opsRecord('issuing', 1));
+    await repo.listOperationalCertificates('issuing');
+    await repo.setOperationalCertificateActive('issuing', 1, true);
+
+    const calls = [PutCommand, GetCommand, QueryCommand, UpdateCommand].flatMap((command) =>
+      dynamo
+        .commandCalls(command as never)
+        .map((call) => (call.args[0] as { input: Record<string, unknown> }).input),
+    );
+    expect(calls.length).toBeGreaterThanOrEqual(16);
+    const problems = calls.flatMap((input) =>
+      problemsIn(input).map(
+        (problem) =>
+          `${String(input.UpdateExpression ?? input.KeyConditionExpression ?? input.ConditionExpression)}: ${problem}`,
+      ),
+    );
+    expect(problems).toEqual([]);
+  });
+
+  it('catches the mistakes it exists for', () => {
+    expect(problemsIn({ UpdateExpression: 'SET type = :t', ExpressionAttributeValues: { ':t': 1 } })).toEqual(
+      ['reserved word type'],
+    );
+    expect(
+      problemsIn({
+        KeyConditionExpression: '#pk = :pk',
+        ExpressionAttributeNames: { '#pk': 'p', '#sk': 's' },
+        ExpressionAttributeValues: { ':pk': 1 },
+      }),
+    ).toEqual(['unused name #sk']);
+    expect(
+      problemsIn({ KeyConditionExpression: '#pk = :pk', ExpressionAttributeValues: { ':pk': 1 } }),
+    ).toEqual(['undefined name #pk']);
+  });
+});

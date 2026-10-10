@@ -226,7 +226,11 @@ export class DynamoCaRepository implements CaRepository {
       IndexName: ownerIndex.name,
       KeyConditionExpression:
         options.subject === undefined ? '#pk = :pk' : '#pk = :pk AND begins_with(#sk, :prefix)',
-      ExpressionAttributeNames: { '#pk': ownerIndex.partitionKey, '#sk': ownerIndex.sortKey },
+      // DynamoDB rejects a placeholder that the expressions do not use.
+      ExpressionAttributeNames: {
+        '#pk': ownerIndex.partitionKey,
+        ...(options.subject === undefined ? {} : { '#sk': ownerIndex.sortKey }),
+      },
       ExpressionAttributeValues: {
         ':pk': keys.ownerPartition(owner),
         ...(options.subject === undefined ? {} : { ':prefix': keys.ownerSubjectPrefix(options.subject) }),
@@ -353,8 +357,10 @@ export class DynamoCaRepository implements CaRepository {
         new UpdateCommand({
           TableName: this.tableName,
           Key: keys.crl(caLabel),
-          UpdateExpression: 'SET type = :type, publishedNumber = :number, publishedAt = :now',
+          // `type` is a DynamoDB reserved word, so it goes through a name placeholder.
+          UpdateExpression: 'SET #type = :type, publishedNumber = :number, publishedAt = :now',
           ConditionExpression: 'attribute_not_exists(publishedNumber) OR publishedNumber < :number',
+          ExpressionAttributeNames: { '#type': 'type' },
           ExpressionAttributeValues: { ':type': 'crl', ':number': crlNumber, ':now': iso(new Date()) },
         }),
       );

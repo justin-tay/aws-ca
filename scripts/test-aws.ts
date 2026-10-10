@@ -13,7 +13,9 @@ if (!process.argv.includes('--yes')) {
   process.exit(1);
 }
 
-const result = spawnSync('npx', ['jest', '-c', 'jest.integration.config.js', '--runInBand'], {
+// Anything after --yes selects tests, so a run can be limited to one suite: npm run test:aws -- --yes repository
+const patterns = process.argv.slice(2).filter((argument) => argument !== '--yes');
+const result = spawnSync('npx', ['jest', '-c', 'jest.integration.config.js', '--runInBand', ...patterns], {
   stdio: 'inherit',
   shell: true,
   env: { ...process.env, AWS_CA_RUN_INTEGRATION: '1' },

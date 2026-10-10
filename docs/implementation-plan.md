@@ -184,7 +184,7 @@ tests.
 **Done when.** A shared contract test suite passes against both the fake and
 (opt-in) real DynamoDB, including a concurrent conditional-write case.
 
-**Status: done; the real-table contract run is written but not yet run.**
+**Status: done, and run against a real table.**
 `src/repo`: the `CaRepository` interface, `InMemoryCaRepository`,
 `DynamoCaRepository`, and `TABLE_SCHEMA` (the key layout and index
 definitions that the stack and the integration test both create the table
@@ -194,6 +194,12 @@ concurrent serial writers, concurrent revokers, CRL numbers and out-of-order
 publication), plus request-shape tests for the DynamoDB implementation. Notes
 for later slices:
 
+- **The real run found two bugs no mock could**, both DynamoDB validating
+  expressions strictly: `type` is a reserved word (an update of the CRL item
+  failed), and a `#sk` name placeholder that an expression does not use is
+  rejected (listing certificates without a subject failed). A test now checks
+  every request the repository can send for undefined or unused placeholders
+  and reserved words used as bare names.
 - **The two indexes are eventually consistent.** A certificate stored or
   revoked a moment ago may not appear in `listCertificatesByOwner` or
   `listRevoked`. Slice 7's revoke handler must add the certificate it has just
