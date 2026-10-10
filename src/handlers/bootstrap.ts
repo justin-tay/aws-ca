@@ -21,6 +21,47 @@ export interface BootstrapResponse {
 
 const PHYSICAL_ID = 'aws-ca-bootstrap';
 
+/** How long to keep retrying while a just-changed IAM policy propagates. */
+const PROPAGATION_WINDOW_MS = 150_000;
+const PROPAGATION_DELAY_MS = 5_000;
+
+const isAccessDenied = (error: unknown): boolean => {
+  const name = (error as { name?: string } | null)?.name ?? '';
+  const message = (error as { message?: string } | null)?.message ?? '';
+  return /AccessDenied/i.test(name) || /not authorized to perform/i.test(message);
+};
+
+/**
+ * IAM is eventually consistent: a policy the same deployment has just widened can take several
+ * seconds to apply, so the first call with a new permission may be denied. Every bootstrap step
+ * is repeatable, so retry the whole run for a bounded time; real denials still surface.
+ */
+export async function withIamPropagationRetry<T>(
+  operation: () => Promise<T>,
+  options: { windowMs?: number; delayMs?: number; sleep?: (ms: number) => Promise<void> } = {},
+): Promise<T> {
+  const windowMs = options.windowMs ?? PROPAGATION_WINDOW_MS;
+  const delayMs = options.delayMs ?? PROPAGATION_DELAY_MS;
+  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  let waited = 0;
+  for (;;) {
+    try {
+      // oxlint-disable-next-line no-await-in-loop
+      return await operation();
+    } catch (error) {
+      if (!isAccessDenied(error) || waited + delayMs > windowMs) {
+        throw error;
+      }
+      console.warn(
+        JSON.stringify({ message: 'access denied, waiting for IAM to propagate', waitedMs: waited }),
+      );
+      // oxlint-disable-next-line no-await-in-loop
+      await sleep(delayMs);
+      waited += delayMs;
+    }
+  }
+}
+
 interface Properties {
   /** The resolved configuration, as JSON. */
   Config: string;
@@ -63,21 +104,23 @@ export const handler = async (event: CloudFormationCustomResourceEvent): Promise
   }
 
   const offlineParameter = offlineRootKeyParameterName(config.namePrefix);
-  const result = await bootstrapCas({
-    config,
-    keyStores,
-    repository,
-    ensureEncryptionSecret: async () => {
-      try {
-        await createEncryptionSecret(ssm, encryptionSecretName(config.namePrefix));
-      } catch (error) {
-        if (!(error instanceof KeyStoreError) || error.code !== 'already-exists') {
-          throw error;
+  const result = await withIamPropagationRetry(() =>
+    bootstrapCas({
+      config,
+      keyStores,
+      repository,
+      ensureEncryptionSecret: async () => {
+        try {
+          await createEncryptionSecret(ssm, encryptionSecretName(config.namePrefix));
+        } catch (error) {
+          if (!(error instanceof KeyStoreError) || error.code !== 'already-exists') {
+            throw error;
+          }
         }
-      }
-    },
-    publishOfflineRootKey: (pem) => publishRootKeyToSsm(ssm, offlineParameter, pem),
-  });
+      },
+      publishOfflineRootKey: (pem) => publishRootKeyToSsm(ssm, offlineParameter, pem),
+    }),
+  );
 
   console.info(
     JSON.stringify({
