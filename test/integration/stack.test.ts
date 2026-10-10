@@ -130,7 +130,7 @@ const region = process.env.AWS_REGION ?? 'ap-southeast-1';
     const { keys } = await clientKey();
     const csr = (await makeCsr(`CN=${username}`, keys))
       .replaceAll(/-----(BEGIN|END) CERTIFICATE REQUEST-----/g, '')
-      .replaceAll(/s+/g, '');
+      .replaceAll(/\s+/g, '');
     const enroll = (secret: string): Promise<Response> =>
       fetch(`${endpoint}/issuing/simpleenroll`, {
         method: 'POST',
@@ -144,7 +144,7 @@ const region = process.env.AWS_REGION ?? 'ap-southeast-1';
     expect((await enroll('wrong-Password1!')).status).toBe(401);
     const response = await enroll(password);
     expect(response.status).toBe(200);
-    const bytes = Buffer.from((await response.text()).replaceAll(/s+/g, ''), 'base64');
+    const bytes = Buffer.from((await response.text()).replaceAll(/\s+/g, ''), 'base64');
     const [leaf, issuing] = [...new X509Certificates(new Uint8Array(bytes))];
     expect(leaf.subject).toBe(`CN=${username}`);
     expect(await leaf.verify({ publicKey: issuing, signatureOnly: true })).toBe(true);
