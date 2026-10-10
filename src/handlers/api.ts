@@ -3,12 +3,18 @@ import { KMSClient } from '@aws-sdk/client-kms';
 import { S3Client } from '@aws-sdk/client-s3';
 import { SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
 import { GetParameterCommand, SSMClient } from '@aws-sdk/client-ssm';
-import type { APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2, ScheduledEvent } from 'aws-lambda';
+import type {
+  APIGatewayProxyEvent,
+  APIGatewayProxyEventV2,
+  APIGatewayProxyStructuredResultV2,
+  ScheduledEvent,
+} from 'aws-lambda';
 import { CognitoAuthenticator } from '../auth';
 import type { ResolvedConfig } from '../config';
 import { CrlService, S3CrlStore } from '../crl';
 import { EstServer } from '../est';
 import { originIsVerified, text, type HttpRequest, type HttpResponse } from '../http';
+import { SsmPublicUrls } from '../frontdoor';
 import { KeyStoreRegistry } from '../keystore';
 import { OcspServer } from '../ocsp';
 import { CertificateIssuer } from '../issuance';
@@ -18,23 +24,65 @@ import { createLogger } from '../log';
 import { RevocationServer } from '../revocation';
 import { DynamoCaRepository, createDocumentClient } from '../repo';
 
-/** The Lambda Function URL (payload v2) form of a request. */
-export function toRequest(event: APIGatewayProxyEventV2): HttpRequest {
+/** An API Gateway REST API proxy event (payload format 1). */
+type RestEvent = APIGatewayProxyEvent;
+/** A Function URL or HTTP API event (payload format 2). */
+type HttpEvent = APIGatewayProxyEventV2;
+export type ApiEvent = HttpEvent | RestEvent;
+
+const isRest = (event: ApiEvent): event is RestEvent => 'httpMethod' in event;
+
+/**
+ * The request from a Function URL or HTTP API (payload v2) or a REST API (payload v1). The client
+ * certificate of an API Gateway mTLS domain is read from the request context, which a caller cannot
+ * set; it is used only when this deployment is configured with such a domain (`MTLS_APIGW`).
+ */
+export function toRequest(event: ApiEvent): HttpRequest {
   const headers: Record<string, string> = {};
   for (const [name, value] of Object.entries(event.headers ?? {})) {
-    if (value !== undefined) {
+    if (value !== undefined && value !== null) {
       headers[name.toLowerCase()] = value;
     }
   }
   const body = event.body ?? '';
+  const bytes = event.isBase64Encoded ? Buffer.from(body, 'base64') : Buffer.from(body, 'utf8');
+  const useCertificate = process.env.MTLS_APIGW === '1';
+
+  if (isRest(event)) {
+    const query = new URLSearchParams();
+    for (const [name, values] of Object.entries(event.multiValueQueryStringParameters ?? {})) {
+      for (const value of values ?? []) {
+        query.append(name, value);
+      }
+    }
+    // The default endpoint carries the stage in its address; a custom domain does not.
+    const domain = event.requestContext.domainName ?? '';
+    const stage = domain.endsWith('.amazonaws.com') ? `/${event.requestContext.stage}` : '';
+    const certificate = useCertificate ? event.requestContext.identity?.clientCert?.clientCertPem : undefined;
+    return {
+      method: event.httpMethod.toUpperCase(),
+      path: event.path,
+      query: query.toString(),
+      headers,
+      body: bytes,
+      baseUrl: process.env.PUBLIC_BASE_URL ?? `https://${domain}${stage}`,
+      ...(certificate ? { viewerCertificatePem: certificate } : {}),
+    };
+  }
+
+  const certificate = useCertificate
+    ? (event.requestContext as { authentication?: { clientCert?: { clientCertPem?: string } } })
+        .authentication?.clientCert?.clientCertPem
+    : undefined;
   return {
     method: event.requestContext.http.method.toUpperCase(),
     path: event.rawPath,
     query: event.rawQueryString,
     headers,
-    body: event.isBase64Encoded ? Buffer.from(body, 'base64') : Buffer.from(body, 'utf8'),
+    body: bytes,
     // The Lambda service sets the domain; a client cannot choose it. `PUBLIC_BASE_URL` wins when a front door has its own.
     baseUrl: process.env.PUBLIC_BASE_URL ?? `https://${event.requestContext.domainName}`,
+    ...(certificate ? { viewerCertificatePem: certificate } : {}),
   };
 }
 
@@ -55,6 +103,8 @@ interface Runtime {
   crl: CrlService;
   /** The issuing CAs: the root's key is not available here, so its CRL is refreshed elsewhere. */
   issuingLabels: string[];
+  /** Where this deployment's front door is, once published; undefined for a bare Function URL. */
+  publicUrls?: SsmPublicUrls;
   /** Resolved once; `undefined` means this front door adds no origin secret. */
   originSecret: () => Promise<string | undefined>;
 }
@@ -111,6 +161,9 @@ function createRuntime(): Runtime {
     ocsp,
     scep,
     crl,
+    ...(process.env.PUBLIC_URLS_PARAMETER
+      ? { publicUrls: new SsmPublicUrls(ssm, process.env.PUBLIC_URLS_PARAMETER) }
+      : {}),
     issuingLabels: config.subordinateCas.map((ca) => ca.label),
     originSecret: () => {
       if (parameter === undefined) {
@@ -136,11 +189,10 @@ function createRuntime(): Runtime {
 
 let runtime: Runtime | undefined;
 
-const isScheduled = (event: APIGatewayProxyEventV2 | ScheduledEvent): event is ScheduledEvent =>
-  'detail-type' in event;
+const isScheduled = (event: ApiEvent | ScheduledEvent): event is ScheduledEvent => 'detail-type' in event;
 
 export const handler = async (
-  event: APIGatewayProxyEventV2 | ScheduledEvent,
+  event: ApiEvent | ScheduledEvent,
 ): Promise<APIGatewayProxyStructuredResultV2 | undefined> => {
   runtime ??= createRuntime();
   if (isScheduled(event)) {
@@ -162,6 +214,24 @@ export const handler = async (
   // First, before anything in the request is believed: see `originIsVerified`.
   if (!originIsVerified(request.headers, await runtime.originSecret())) {
     return toResult(text(403, 'Forbidden.'));
+  }
+  // Behind CloudFront the Lambda sees its own Function URL; the addresses clients use were published.
+  const urls = await runtime.publicUrls?.get();
+  if (urls) {
+    request.baseUrl = urls.base;
+    if (urls.revocation) {
+      request.revocationBaseUrl = urls.revocation;
+    }
+  }
+  // The viewer certificate is believed only because the origin secret has just been verified, and
+  // only where CloudFront was configured to ask for one.
+  const viewerCertificate = request.headers['cloudfront-viewer-cert-pem'];
+  if (
+    process.env.MTLS_VIEWER_CERT === '1' &&
+    process.env.ORIGIN_VERIFY_PARAMETER !== undefined &&
+    viewerCertificate
+  ) {
+    request.viewerCertificatePem = decodeURIComponent(viewerCertificate);
   }
   const routed =
     (await runtime.revocation.handle(request)) ??

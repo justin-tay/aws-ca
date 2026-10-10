@@ -520,6 +520,63 @@ from the scope and things later slices should know:
 **Risks.** Deploy and destroy are slow (about 7 minutes per distribution); keep
 the integration suite for this slice small.
 
+**Status: implemented and synth-tested for every level; the CloudFront deployment
+check (`npm run test:aws -- --yes cloudfront`, about 25 minutes) is written but
+not yet run. API Gateway mTLS is not verified against AWS: it needs a custom
+domain and an ACM certificate you own.**
+`lib/cloudfront-front-door.ts`, `lib/api-gateway-front-door.ts`, `src/frontdoor`.
+Decisions and corrections to the design:
+
+- **mTLS is `optional`, not `required`.** Required would make a first enrollment
+  impossible: a device with no certificate yet cannot even complete the
+  handshake. With optional, a password enrollment works and a presented
+  certificate is validated against the trust store. The Lambda authenticates a
+  re-enrollment by the certificate alone (`viewerCertificatePem`), looking the
+  certificate up in the table, because the trust store does not check
+  revocation: a revoked or expired certificate is refused (401).
+- **Origin secret.** The bootstrap creates `<prefix>/internal/origin-verify` and
+  returns it to the stack (it must be in the distribution's origin
+  configuration, so it is as visible as that is to administrators). The Lambda
+  reads it from SSM and answers 403 without it; a failed read fails closed. The
+  `CloudFront-Viewer-Cert-*` headers are believed only after that check and only
+  when mTLS was configured. The direct Function URL stays public, by design.
+- **Authorization cannot be in an origin request policy** (a CDK and CloudFront
+  rule); it is forwarded because it is in the cache key of a no-caching policy
+  (TTL 0, max 1 s). `Host` is never forwarded: a Function URL answers it with 403.
+- **Two distributions with mTLS.** The mTLS one is HTTPS-only, HTTP/2, with the
+  trust store; the plain one serves only `/crl/*` and `/ocsp/*` (a CloudFront
+  Function answers 404 for everything else). Without mTLS there is one
+  distribution: enrollment HTTPS only, CRL and OCSP also HTTP. CRL and OCSP URLs in
+  certificates point at the plain distribution (`revocationBaseUrl`).
+- **Trust store** is a snapshot of a bundle (root plus issuing CAs) the bootstrap
+  writes to `trust/ca-bundle-<hash>.pem` in the CRL bucket. The key carries a hash
+  of the content, so a changed CA set is a stack update that replaces the trust
+  store; the same key would have left it stale. Old bundles are removed on destroy.
+- **Public URLs.** The runtime cannot know a distribution's name from its own
+  environment without a dependency cycle, so a second custom resource on the same
+  provider writes `<prefix>/internal/public-urls` after the distributions exist
+  and the Lambda reads it (cached 5 minutes).
+- **API Gateway levels.** One Lambda proxy behind `ANY /{proxy+}` (HTTP API) or
+  `ANY` plus a proxy resource (REST). There is no Function URL at these levels. The
+  default `execute-api` endpoint is disabled whenever mTLS is on, or the
+  certificate requirement could be bypassed through it; the client certificate is
+  read from the request context, which a caller cannot set, and only when
+  `MTLS_APIGW` is set. The REST API passes binary bodies (`*/*`) and does not
+  create the account-wide CloudWatch role.
+- **Private REST API:** an existing `vpcEndpointId`, or a new `execute-api`
+  interface endpoint from `vpcId` and `subnetIds` with private DNS and a security
+  group open to private address ranges only; a resource policy denies any other
+  source. The Lambda stays out of the VPC.
+- **Payload formats.** The adapter reads a Function URL or HTTP API event (v2) and
+  a REST API event (v1), adding the stage to the base URL on the default endpoint.
+- **cdk-nag:** CFR1-4 and APIG1-4, APIG6 and COG4 are acknowledged with reasons.
+  The CFR4 finding is the fixed policy of the default cloudfront.net certificate;
+  TLS 1.2 is set whenever a custom domain is.
+- **Known gaps.** The sub CA certificates still have no CDP. With mTLS and a
+  custom domain, EST and SCEP are at the domain and CRL and OCSP stay on the plain
+  distribution's own address. The trust store must be updated when a CA changes
+  (it is, by the stack update above) and does not itself check revocation.
+
 ## Slice 11: hardening and documentation (M)
 
 **Scope.** `cdk-nag` clean (documented suppressions only); log-redaction and

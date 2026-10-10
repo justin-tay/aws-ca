@@ -10,6 +10,54 @@ const KMS = 'arn:<AWS::Partition>:kms:<AWS::Region>:<AWS::AccountId>';
 /** Every wildcard the stack deliberately uses, and why. Anything not listed fails the test. */
 const ACKNOWLEDGED: { id: string; reason: string }[] = [
   {
+    id: 'AwsSolutions::AwsSolutions-IAM5[Resource::<CrlBucket56B6A239.Arn>/trust/*]',
+    reason:
+      'The CA bundle objects are named by the hash of their content, so the key is not known in advance.',
+  },
+  {
+    id: 'AwsSolutions::AwsSolutions-APIG1',
+    reason: 'Access logs would record client addresses and the request paths of enrolling devices.',
+  },
+  {
+    id: 'AwsSolutions::AwsSolutions-APIG2',
+    reason: 'Bodies are binary PKCS#10, CMS or OCSP messages that the Lambda parses and validates itself.',
+  },
+  {
+    id: 'AwsSolutions::AwsSolutions-APIG3',
+    reason: 'AWS WAF is a recurring cost this low-cost CA does not add; authentication is by the Lambda.',
+  },
+  {
+    id: 'AwsSolutions::AwsSolutions-APIG4',
+    reason:
+      'EST, SCEP, CRL and OCSP are protocol endpoints: some must be anonymous and the rest authenticate in the Lambda.',
+  },
+  {
+    id: 'AwsSolutions::AwsSolutions-APIG6',
+    reason:
+      'Stage logging is off for the same reason as access logs; the Lambda logs what it decides, redacted.',
+  },
+  {
+    id: 'AwsSolutions::AwsSolutions-COG4',
+    reason: 'Basic credentials are checked by the Lambda against Cognito with InitiateAuth, as EST requires.',
+  },
+  {
+    id: 'AwsSolutions::AwsSolutions-CFR1',
+    reason: 'Geo restriction is a policy choice for the deployer; a private CA has no natural country list.',
+  },
+  {
+    id: 'AwsSolutions::AwsSolutions-CFR2',
+    reason: 'AWS WAF is a recurring cost this low-cost CA does not add; authentication is by the Lambda.',
+  },
+  {
+    id: 'AwsSolutions::AwsSolutions-CFR3',
+    reason: 'Access logs would record client addresses and the request paths of enrolling devices.',
+  },
+  {
+    id: 'AwsSolutions::AwsSolutions-CFR4',
+    reason:
+      'The default cloudfront.net certificate has a fixed policy; TLS 1.2 is set when a custom domain is.',
+  },
+  {
     id: `AwsSolutions::AwsSolutions-IAM5[Resource::${PARAMETER}/private-ca/ca/issuing-ops/*]`,
     reason: 'The issuing CA’s delegated key (SCEP and OCSP) is created at deploy time under its own path.',
   },
@@ -128,6 +176,19 @@ describe('AWS Solutions cdk-nag', () => {
 
   it('passes with OCSP signed by its own KMS key', () => {
     expect(synth({ ocsp: { signing: 'kms' } } as unknown as AwsCaConfigInput)).not.toThrow();
+  });
+
+  it.each([
+    ['function-url', { type: 'function-url' }],
+    ['cloudfront with mTLS', { type: 'cloudfront', mtls: true }],
+    ['http-api', { type: 'http-api' }],
+    ['regional rest-api', { type: 'rest-api' }],
+    [
+      'private rest-api',
+      { type: 'rest-api', endpointType: 'private', vpcEndpointId: 'vpce-0123456789abcdef0' },
+    ],
+  ])('passes with the %s front door', (_name, frontDoor) => {
+    expect(synth({ frontDoor } as unknown as AwsCaConfigInput)).not.toThrow();
   });
 
   it('passes with a customer managed key and an offline root', () => {

@@ -8,6 +8,13 @@ export interface HttpRequest {
   query?: string;
   /** The public base URL of this service with no trailing slash, for URLs written into certificates. */
   baseUrl?: string;
+  /** Where the CRL and OCSP are when they are served from somewhere else (a plain HTTP distribution). */
+  revocationBaseUrl?: string;
+  /**
+   * The client certificate the front door authenticated by mTLS, as PEM. Set only after the request
+   * is known to have come through the front door, never from a header the client could have sent.
+   */
+  viewerCertificatePem?: string;
 }
 
 export interface HttpResponse {

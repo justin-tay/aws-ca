@@ -113,7 +113,7 @@ export class ScepServer {
           if (!message) {
             return text(400, 'A PKIOperation needs a message.');
           }
-          return await this.pkiOperation(ca, message, request.baseUrl);
+          return await this.pkiOperation(ca, message, request.revocationBaseUrl ?? request.baseUrl);
         }
         default:
           return text(400, 'Unsupported operation.');

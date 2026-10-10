@@ -40,6 +40,8 @@ const region = process.env.AWS_REGION ?? 'ap-southeast-1';
     const config = {
       namePrefix: prefix,
       removalPolicy: 'destroy',
+      // The slow, separate front-door test covers CloudFront; this one stays fast.
+      frontDoor: { type: 'function-url' },
       policy: { allowedDomainSuffixes: ['example.internal'] },
       rootCa: { validityYears: 5 },
       subordinateCas: subordinates,

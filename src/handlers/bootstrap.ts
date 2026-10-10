@@ -1,7 +1,7 @@
 import { KMSClient } from '@aws-sdk/client-kms';
 import { S3Client } from '@aws-sdk/client-s3';
 import { SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
-import { SSMClient } from '@aws-sdk/client-ssm';
+import { PutParameterCommand, SSMClient } from '@aws-sdk/client-ssm';
 import type { CloudFormationCustomResourceEvent, ScheduledEvent } from 'aws-lambda';
 import {
   bootstrapCas,
@@ -14,6 +14,13 @@ import type { ResolvedConfig } from '../config';
 import { CrlService, S3CrlStore } from '../crl';
 import { createLogger } from '../log';
 import { OperationalKeyService } from '../operational';
+import {
+  buildTrustBundle,
+  ensureOriginSecret,
+  originVerifyName,
+  removeTrustBundles,
+  writeTrustBundle,
+} from '../frontdoor';
 import { ensureScepChallenge, scepChallengeName } from '../scep';
 import { KeyStoreError, KeyStoreRegistry, createEncryptionSecret, encryptionSecretName } from '../keystore';
 import { DynamoCaRepository, createDocumentClient } from '../repo';
@@ -79,6 +86,35 @@ interface Properties {
  * configured to destroy them. Everything it does is repeatable. It never logs the event or any
  * key material.
  */
+/**
+ * The addresses clients use, written for the runtime once the front door exists. This runs as a
+ * second custom resource on the same provider, after the distributions are created.
+ */
+async function publishPublicUrls(event: CloudFormationCustomResourceEvent): Promise<BootstrapResponse> {
+  const properties = event.ResourceProperties as unknown as {
+    ParameterName: string;
+    Base: string;
+    Revocation?: string;
+  };
+  const ssm = new SSMClient({});
+  if (event.RequestType === 'Delete') {
+    await removeParameter(ssm, properties.ParameterName);
+  } else {
+    await ssm.send(
+      new PutParameterCommand({
+        Name: properties.ParameterName,
+        Type: 'String',
+        Overwrite: true,
+        Value: JSON.stringify({
+          base: properties.Base,
+          ...(properties.Revocation ? { revocation: properties.Revocation } : {}),
+        }),
+      }),
+    );
+  }
+  return { PhysicalResourceId: 'aws-ca-public-urls' };
+}
+
 const isScheduled = (event: CloudFormationCustomResourceEvent | ScheduledEvent): event is ScheduledEvent =>
   'detail-type' in event;
 
@@ -132,6 +168,9 @@ export const handler = async (
     await scheduledMaintenance();
     return undefined;
   }
+  if ((event.ResourceProperties as { Kind?: string }).Kind === 'public-urls') {
+    return publishPublicUrls(event);
+  }
   const properties = event.ResourceProperties as unknown as Properties;
   const config = JSON.parse(properties.Config) as ResolvedConfig;
 
@@ -155,9 +194,11 @@ export const handler = async (
       await removeParameter(ssm, encryptionSecretName(config.namePrefix));
       await removeParameter(ssm, offlineRootKeyParameterName(config.namePrefix));
       await removeParameter(ssm, scepChallengeName(config.namePrefix));
+      await removeParameter(ssm, originVerifyName(config.namePrefix));
       // The CRL bucket is deleted with the stack and must be empty by then.
       const bucket = process.env.CRL_BUCKET;
       if (bucket !== undefined) {
+        await removeTrustBundles(new S3Client({}), bucket);
         const store = new S3CrlStore({ client: new S3Client({}), bucket });
         for (const label of ['root', ...config.subordinateCas.map((ca) => ca.label)]) {
           // oxlint-disable-next-line no-await-in-loop
@@ -226,6 +267,27 @@ export const handler = async (
       throw new Error(`A CRL could not be published: ${summary.failed[0].message}`);
     }
   }
+  // CloudFront: the secret its origin requests carry. Any front door with mTLS: the CA bundle its
+  // trust store reads (CloudFront and API Gateway both take a PEM bundle from S3).
+  const frontDoor: Record<string, string> = {};
+  if (config.frontDoor.type === 'cloudfront') {
+    frontDoor.OriginVerifySecret = await ensureOriginSecret(ssm, originVerifyName(config.namePrefix));
+  }
+  {
+    if (config.frontDoor.type !== 'function-url' && config.frontDoor.mtls && bucket !== undefined) {
+      const pems: string[] = [];
+      for (const ca of result.cas) {
+        // oxlint-disable-next-line no-await-in-loop
+        const record = await repository.getCa(ca.label);
+        if (record) {
+          pems.push(record.certificatePem);
+        }
+      }
+      const bundle = buildTrustBundle(pems);
+      await writeTrustBundle(new S3Client({}), bucket, bundle);
+      frontDoor.TrustBundleKey = bundle.key;
+    }
+  }
   const root = result.cas.find((ca) => ca.label === 'root');
   return {
     PhysicalResourceId: PHYSICAL_ID,
@@ -234,6 +296,7 @@ export const handler = async (
       Cas: result.cas.map((ca) => `${ca.label}=${ca.fingerprint}`).join(','),
       ...(config.rootCa.keyHandling === 'offline' ? { OfflineRootKeyParameter: offlineParameter } : {}),
       ...(config.scep.enabled ? { ScepChallengeParameter: scepChallengeName(config.namePrefix) } : {}),
+      ...frontDoor,
     },
   };
 };

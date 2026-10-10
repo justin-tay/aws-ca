@@ -185,6 +185,9 @@ HTTP`), and HTTP/3 must be off. The `cloudfront` level therefore creates two
   keys are RSA 2048/3072/4096 and ECDSA P-256 and P-384 only (not P-521), so a
   P-521 CA cannot use CloudFront mTLS. It validates the chain but does not check
   revocation by itself.
+- **mTLS is optional, not required**, so that a device with no certificate yet can
+  make its first enrollment by password; a certificate that is presented is
+  validated against the trust store, and the Lambda also checks its status.
 - **Origin request policy**: whitelist headers explicitly. The `allViewer*`
   behaviors forward the viewer's `Host`, which a Function URL answers with 403.
   `x-amz-content-sha256` cannot be whitelisted.

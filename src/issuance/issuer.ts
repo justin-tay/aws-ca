@@ -24,6 +24,8 @@ export interface IssueRequest {
   owner: string;
   /** Public base URL for the CRL and OCSP URLs written into the certificate. */
   baseUrl?: string;
+  /** Where the CRL and OCSP are, if not at `baseUrl`. */
+  revocationBaseUrl?: string;
 }
 
 /**
@@ -56,6 +58,7 @@ export class CertificateIssuer {
     const notAfter = new Date(
       Math.min(now.getTime() + decision.validityDays * DAY_MS, issuer.notAfter.getTime()),
     );
+    const revocationBase = request.revocationBaseUrl ?? request.baseUrl;
     const certificate = await issueCertificate({
       profile: decision.profile,
       subject: decision.subject,
@@ -64,11 +67,11 @@ export class CertificateIssuer {
       notBefore: new Date(now.getTime() - CLOCK_SKEW_MS),
       notAfter,
       subjectAltNames: decision.subjectAltNames,
-      ...(request.baseUrl === undefined
+      ...(revocationBase === undefined
         ? {}
         : {
-            crlUrls: [`${request.baseUrl}/crl/${ca.label}.crl`],
-            ...(this.deps.config.ocsp.enabled ? { ocspUrls: [`${request.baseUrl}/ocsp/${ca.label}`] } : {}),
+            crlUrls: [`${revocationBase}/crl/${ca.label}.crl`],
+            ...(this.deps.config.ocsp.enabled ? { ocspUrls: [`${revocationBase}/ocsp/${ca.label}`] } : {}),
           }),
     });
     const serialNumber = canonicalSerial(certificate.serialNumber);

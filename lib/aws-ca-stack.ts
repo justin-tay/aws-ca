@@ -22,6 +22,9 @@ import { Provider } from 'aws-cdk-lib/custom-resources';
 import type { Construct } from 'constructs';
 import type { ResolvedConfig } from '../src/config';
 import { TABLE_SCHEMA } from '../src/repo';
+import { originVerifyName, publicUrlsName } from '../src/frontdoor';
+import { ApiGatewayFrontDoor } from './api-gateway-front-door';
+import { CloudFrontFrontDoor } from './cloudfront-front-door';
 import { customerManagedKeyStatement, keyAccessStatements, rootKeyDenyStatements } from './permissions';
 
 export interface AwsCaStackProps extends StackProps {
@@ -52,6 +55,10 @@ export class AwsCaStack extends Stack {
   public readonly customerManagedKey?: Key;
   /** Holds each CA's current CRL. Private: the API serves it. */
   public readonly crlBucket: Bucket;
+  /** Present with the `cloudfront` front door. */
+  public cloudFront?: CloudFrontFrontDoor;
+  /** Present with the `http-api` and `rest-api` front doors. */
+  public apiGateway?: ApiGatewayFrontDoor;
   public readonly userPool: UserPool;
   public readonly userPoolClient: UserPoolClient;
 
@@ -152,6 +159,23 @@ export class AwsCaStack extends Stack {
             }),
           ]
         : []),
+      ...(config.frontDoor.type === 'cloudfront'
+        ? [
+            new PolicyStatement({
+              sid: 'FrontDoor',
+              effect: Effect.ALLOW,
+              actions: ['ssm:GetParameter'],
+              resources: [originVerifyName(config.namePrefix), publicUrlsName(config.namePrefix)].map(
+                (name) =>
+                  this.formatArn({
+                    service: 'ssm',
+                    resource: 'parameter',
+                    resourceName: name.replace(/^\//, ''),
+                  }),
+              ),
+            }),
+          ]
+        : []),
       new PolicyStatement({
         sid: 'EncryptionSecret',
         effect: Effect.ALLOW,
@@ -198,6 +222,8 @@ export class AwsCaStack extends Stack {
       refreshTokenValidity: Duration.hours(1),
     });
 
+    const cloudfront = config.frontDoor.type === 'cloudfront' ? config.frontDoor : undefined;
+    const usesMtls = config.frontDoor.type !== 'function-url' && config.frontDoor.mtls;
     const apiConfig = JSON.stringify({ ...config, warnings: [] });
     if (Buffer.byteLength(apiConfig) > 3000) {
       throw new Error(
@@ -222,10 +248,28 @@ export class AwsCaStack extends Stack {
         USER_POOL_CLIENT_ID: this.userPoolClient.userPoolClientId,
         CRL_BUCKET: this.crlBucket.bucketName,
         ...(this.customerManagedKey ? { CUSTOMER_MANAGED_KEY_ARN: this.customerManagedKey.keyArn } : {}),
+        // Behind CloudFront every request must carry the secret, and the client certificate headers
+        // are believed only once it has been checked.
+        ...(cloudfront
+          ? {
+              ORIGIN_VERIFY_PARAMETER: originVerifyName(config.namePrefix),
+              PUBLIC_URLS_PARAMETER: publicUrlsName(config.namePrefix),
+              ...(cloudfront.mtls ? { MTLS_VIEWER_CERT: '1' } : {}),
+            }
+          : {}),
+        // API Gateway puts the client certificate in the request context, which a caller cannot set.
+        ...((config.frontDoor.type === 'http-api' || config.frontDoor.type === 'rest-api') &&
+        config.frontDoor.mtls
+          ? { MTLS_APIGW: '1' }
+          : {}),
       },
     });
     // Clients authenticate with Basic credentials that the function checks itself, so the URL is public.
-    const functionUrl = this.apiFunction.addFunctionUrl({ authType: FunctionUrlAuthType.NONE });
+    // Only the levels that front a Function URL have one: it would be a way around an API Gateway.
+    const functionUrl =
+      config.frontDoor.type === 'function-url' || cloudfront
+        ? this.apiFunction.addFunctionUrl({ authType: FunctionUrlAuthType.NONE })
+        : undefined;
 
     // -- the bootstrap: creates the CAs, so it may use every key, root included
     const bootstrapLogs = new LogGroup(this, 'BootstrapLogs', {
@@ -244,6 +288,25 @@ export class AwsCaStack extends Stack {
         resources: [this.crlBucket.arnForObjects('crl/*')],
       }),
     );
+    if (usesMtls) {
+      this.bootstrapRole.addToPolicy(
+        new PolicyStatement({
+          sid: 'TrustBundle',
+          actions: ['s3:PutObject', 's3:DeleteObject'],
+          resources: [this.crlBucket.arnForObjects('trust/*')],
+        }),
+      );
+    }
+    if (cloudfront || usesMtls) {
+      this.bootstrapRole.addToPolicy(
+        new PolicyStatement({
+          sid: 'TrustBundleList',
+          actions: ['s3:ListBucket'],
+          resources: [this.crlBucket.bucketArn],
+          conditions: { StringLike: { 's3:prefix': ['trust/*'] } },
+        }),
+      );
+    }
     const secretPath = `${config.namePrefix}/internal/*`.replace(/^\//, '');
     for (const statement of [
       ...keyAccessStatements(this, config, ['root', ...subLabels, ...delegatedLabels], 'admin'),
@@ -296,16 +359,72 @@ export class AwsCaStack extends Stack {
       targets: [new LambdaFunction(this.apiFunction), new LambdaFunction(this.bootstrapFunction)],
     });
 
+    // -- the front door: where clients actually connect
+    let publicBase = functionUrl ? functionUrl.url.replace(/\/$/, '') : '';
+    let revocationBase: string | undefined;
+    if (cloudfront && functionUrl) {
+      this.cloudFront = new CloudFrontFrontDoor(this, {
+        config: { ...config, frontDoor: cloudfront },
+        functionUrl,
+        bucket: this.crlBucket,
+        originSecret: this.bootstrap.getAttString('OriginVerifySecret'),
+        ...(cloudfront.mtls ? { trustBundleKey: this.bootstrap.getAttString('TrustBundleKey') } : {}),
+      });
+      publicBase = `https://${this.cloudFront.mainHost}`;
+      revocationBase = `http://${this.cloudFront.revocationHost}`;
+      // Published for the runtime, which cannot learn the distribution's name from its own
+      // environment without a dependency cycle.
+      const urls = new CustomResource(this, 'PublicUrls', {
+        serviceToken: provider.serviceToken,
+        properties: {
+          Kind: 'public-urls',
+          ParameterName: publicUrlsName(config.namePrefix),
+          Base: publicBase,
+          Revocation: revocationBase,
+        },
+      });
+      urls.node.addDependency(this.bootstrap);
+    }
+
+    if (config.frontDoor.type === 'http-api' || config.frontDoor.type === 'rest-api') {
+      const frontDoor = config.frontDoor;
+      this.apiGateway = new ApiGatewayFrontDoor(this, {
+        config: { ...config, frontDoor },
+        handler: this.apiFunction,
+        bucket: this.crlBucket,
+        ...(frontDoor.mtls ? { trustBundleKey: this.bootstrap.getAttString('TrustBundleKey') } : {}),
+      });
+      // Without a custom domain the address is the API's own, which is a token (and is not
+      // available at all when the default endpoint is disabled, which mTLS requires a domain for).
+      publicBase =
+        this.apiGateway.publicBase ??
+        this.apiGateway.httpApi?.apiEndpoint ??
+        this.apiGateway.restApi?.url.replace(/\/$/, '') ??
+        '';
+    }
+
     // -- outputs
     new CfnOutput(this, 'TableName', { value: this.table.tableName });
     new CfnOutput(this, 'EstEndpoint', {
       description: 'Base URL for EST, for example <this>/<ca>/simpleenroll',
-      value: `${functionUrl.url}.well-known/est`,
+      value: `${publicBase}/.well-known/est`,
     });
+    if (cloudfront && functionUrl) {
+      new CfnOutput(this, 'OriginFunctionUrl', {
+        description: 'The origin behind CloudFront. It rejects any request without the origin secret.',
+        value: functionUrl.url,
+      });
+    }
+    if (revocationBase) {
+      new CfnOutput(this, 'RevocationBaseUrl', {
+        description: 'Where the CRL and OCSP are served (plain HTTP)',
+        value: revocationBase,
+      });
+    }
     if (config.scep.enabled) {
       new CfnOutput(this, 'ScepEndpoint', {
         description: 'SCEP URL for the first issuing CA',
-        value: `${functionUrl.url}scep/${config.subordinateCas[0].label}/pkiclient.exe`,
+        value: `${publicBase}/scep/${config.subordinateCas[0].label}/pkiclient.exe`,
       });
       new CfnOutput(this, 'ScepChallengeParameter', {
         description: 'The parameter that holds the SCEP challenge password',

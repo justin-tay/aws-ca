@@ -1,6 +1,12 @@
 import { X509Certificate } from '@peculiar/x509';
-import { authErrorResponse, authenticateRequest, isResponse, type Authenticator } from '../auth';
-import { CsrError, parseCsr } from '../ca';
+import {
+  authErrorResponse,
+  authenticateRequest,
+  isResponse,
+  type AuthenticatedUser,
+  type Authenticator,
+} from '../auth';
+import { CsrError, canonicalSerial, parseCsr } from '../ca';
 import type { ResolvedConfig } from '../config';
 import { CertificateIssuer } from '../issuance';
 import { text, type HttpRequest, type HttpResponse } from '../http';
@@ -126,8 +132,42 @@ export class EstServer {
     return chain;
   }
 
+  /**
+   * The user a client certificate stands for: the owner recorded when this CA issued it. The front
+   * door checked the chain against its trust store but not revocation, so status and expiry are
+   * checked here, against the record.
+   */
+  private async userFromCertificate(pem: string, ca: CaRecord): Promise<AuthenticatedUser | undefined> {
+    try {
+      const certificate = new X509Certificate(pem);
+      const issuer = new X509Certificate(ca.certificatePem);
+      if (!(await certificate.verify({ publicKey: issuer, signatureOnly: true }))) {
+        return undefined;
+      }
+      const record = await this.deps.repository.getCertificate(
+        ca.label,
+        canonicalSerial(certificate.serialNumber),
+      );
+      if (!record || record.status !== 'valid' || record.notAfter <= this.now()) {
+        return undefined;
+      }
+      return { username: record.owner, groups: [this.deps.config.groups[record.profile]] };
+    } catch {
+      return undefined;
+    }
+  }
+
   private async enroll(request: HttpRequest, ca: CaRecord, renewal: boolean): Promise<HttpResponse> {
-    const user = await authenticateRequest(request, this.deps.authenticator, this.logger);
+    // A re-enrollment over mTLS is authenticated by the certificate being renewed; otherwise Basic.
+    const fromCertificate =
+      renewal && request.viewerCertificatePem
+        ? await this.userFromCertificate(request.viewerCertificatePem, ca)
+        : undefined;
+    if (renewal && request.viewerCertificatePem && !fromCertificate) {
+      return text(401, 'The client certificate is not valid for re-enrollment.');
+    }
+    const user =
+      fromCertificate ?? (await authenticateRequest(request, this.deps.authenticator, this.logger));
     if (isResponse(user)) {
       return user;
     }
@@ -170,6 +210,7 @@ export class EstServer {
         decision,
         owner: user.username,
         ...(request.baseUrl === undefined ? {} : { baseUrl: request.baseUrl }),
+        ...(request.revocationBaseUrl === undefined ? {} : { revocationBaseUrl: request.revocationBaseUrl }),
       });
       this.logger.info('issued', {
         username: user.username,
