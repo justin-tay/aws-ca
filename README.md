@@ -1,14 +1,27 @@
-# Welcome to your CDK TypeScript project
+# aws-ca
 
-This is a blank project for CDK development with TypeScript.
+A cheap replacement for AWS Private CA, running on Lambda and deployed as a CDK
+app. It issues client certificates (SCEP, EST) and server certificates (EST),
+and serves OCSP and a CRL. CA keys live in a configurable backend: SSM
+Parameter Store (cheapest), Secrets Manager, or KMS (most expensive, key never
+leaves KMS).
 
-The `cdk.json` file tells the CDK Toolkit how to execute your app.
+Status: rewrite in progress. See [docs/design.md](docs/design.md) for the
+design and [docs/implementation-plan.md](docs/implementation-plan.md) for the
+order of work. The previous implementation is on the `main` branch.
 
-## Useful commands
+## Requirements
 
-* `npm run build`   type-check the project
-* `npm run watch`   watch for changes and type-check
-* `npm run test`    perform the jest unit tests
-* `npx cdk deploy`  deploy this stack to your default AWS account/region
-* `npx cdk diff`    compare deployed stack with current state
-* `npx cdk synth`   emits the synthesized CloudFormation template
+- Node.js 24
+- AWS credentials and a bootstrapped CDK environment for deployment
+
+## Commands
+
+| Command              | What it does                                   |
+| -------------------- | ---------------------------------------------- |
+| `npm test`           | Unit tests with coverage (jest, `@swc/jest`)   |
+| `npm run typecheck`  | Type-check the project (`tsc --noEmit`)        |
+| `npm run lint`       | `oxlint` with type-aware rules                 |
+| `npm run format`     | Format with `oxfmt` (`format:check` to verify) |
+| `npm run cdk:synth`  | Synthesize the CloudFormation template         |
+| `npm run cdk:deploy` | Deploy the stack                               |

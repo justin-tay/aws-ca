@@ -1,24 +1,42 @@
 {
   "name": "aws-ca",
   "version": "0.1.0",
+  "private": true,
   "scripts": {
-    "build": "tsc",
-    "watch": "tsc -w",
-    "test": "jest",
-    "cdk": "cdk"
-  },
-  "devDependencies": {
-    "@swc/core": "^1.15.0",
-    "@swc/jest": "^0.2.39",
-    "@types/jest": "^30",
-    "@types/node": "^24.10.1",
-    "jest": "^30",
-    "aws-cdk": "2.1145.0",
-    "tsx": "^4.23.0",
-    "typescript": "~7.0.2"
+    "typecheck": "tsc -p tsconfig.json",
+    "build": "npm run typecheck",
+    "test": "jest --coverage",
+    "lint": "oxlint --type-aware --deny-warnings",
+    "lint:fix": "oxlint --type-aware --fix",
+    "format": "oxfmt",
+    "format:check": "oxfmt --check",
+    "cdk": "cdk",
+    "cdk:synth": "cdk synth",
+    "cdk:diff": "cdk diff",
+    "cdk:deploy": "cdk deploy",
+    "cdk:destroy": "cdk destroy"
   },
   "dependencies": {
     "aws-cdk-lib": "^2.272.0",
     "constructs": "^10.5.0"
+  },
+  "devDependencies": {
+    "@swc/core": "1.16.2",
+    "@swc/jest": "^0.2.39",
+    "@types/aws-lambda": "^8.10.152",
+    "@types/jest": "^30",
+    "@types/node": "^24.10.1",
+    "aws-cdk": "2.1145.0",
+    "cdk-nag": "^3.0.2",
+    "esbuild": "^0.28.2",
+    "jest": "^30",
+    "oxfmt": "^0.70.0",
+    "oxlint": "^1.85.0",
+    "oxlint-tsgolint": "^7.0.2003",
+    "tsx": "^4.23.0",
+    "typescript": "~7.0.2"
+  },
+  "engines": {
+    "node": ">=24"
   }
 }

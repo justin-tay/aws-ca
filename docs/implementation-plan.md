@@ -253,13 +253,13 @@ if any, are listed).
 
 ## Cross-slice risks
 
-| Risk | Mitigation |
-| ---- | ---------- |
+| Risk                                                  | Mitigation                                                                                                           |
+| ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
 | `@peculiar/x509` and `pkijs` have more edge-case bugs | Conformance tests against `openssl` and `jscep` from slice 2 on; keep workarounds in one module with a comment each. |
-| KMS 4096-byte `RAW` limit on large CRLs | Hash locally, use `MessageType: DIGEST` (slice 2 and 3). |
-| CloudFront trust store goes stale on CA change | Slice 10 tooling plus a runbook; renewal flow updates it. |
-| Slow CloudFront deploys make CI painful | Synth tests by default; integration for CloudFront only on demand. |
-| Scope creep (ACME, migrations, multi-region) | Out of scope per design.md; new items need a design.md change first. |
+| KMS 4096-byte `RAW` limit on large CRLs               | Hash locally, use `MessageType: DIGEST` (slice 2 and 3).                                                             |
+| CloudFront trust store goes stale on CA change        | Slice 10 tooling plus a runbook; renewal flow updates it.                                                            |
+| Slow CloudFront deploys make CI painful               | Synth tests by default; integration for CloudFront only on demand.                                                   |
+| Scope creep (ACME, migrations, multi-region)          | Out of scope per design.md; new items need a design.md change first.                                                 |
 
 ## Suggested first milestone
 

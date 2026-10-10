@@ -12,11 +12,11 @@ server certificates (EST), and serves OCSP and a CRL.
 The main improvement over `main` is where CA keys are stored. That is
 configurable, per CA, from cheapest to most expensive and most secure:
 
-| Backend     | Cost                              | Key exportable | Notes                               |
-| ----------- | --------------------------------- | -------------- | ----------------------------------- |
-| `parameter` | free (standard tier)              | yes            | SSM SecureString                    |
-| `secret`    | about $0.40 per secret per month  | yes            | Secrets Manager                     |
-| `kms`       | about $1 per key per month + sign | no             | asymmetric `SIGN_VERIFY` key        |
+| Backend     | Cost                              | Key exportable | Notes                        |
+| ----------- | --------------------------------- | -------------- | ---------------------------- |
+| `parameter` | free (standard tier)              | yes            | SSM SecureString             |
+| `secret`    | about $0.40 per secret per month  | yes            | Secrets Manager              |
+| `kms`       | about $1 per key per month + sign | no             | asymmetric `SIGN_VERIFY` key |
 
 Prices are approximate and must be re-checked against the AWS pricing pages
 when the docs are written.
@@ -59,10 +59,10 @@ spike.
 
 **Parameter and Secret** hold plain PKCS#8, protected by `keyProtection`:
 
-| Value      | Meaning                                                                                   | Extra cost |
-| ---------- | ----------------------------------------------------------------------------------------- | ---------- |
-| `managed`  | AWS-managed key only. Anyone who can read the parameter can decrypt it in the console.     | $0         |
-| `app-wrap` | **Default.** AES-256-GCM over the PKCS#8 DER, key from HKDF over a random wrap secret.     | $0         |
+| Value      | Meaning                                                                                     | Extra cost |
+| ---------- | ------------------------------------------------------------------------------------------- | ---------- |
+| `managed`  | AWS-managed key only. Anyone who can read the parameter can decrypt it in the console.      | $0         |
+| `app-wrap` | **Default.** AES-256-GCM over the PKCS#8 DER, key from HKDF over a random wrap secret.      | $0         |
 | `cmk`      | Customer-managed KMS key whose policy allows decrypt only to the Lambda role. Real control. | $1/month   |
 
 The wrap secret is a random 256-bit value generated at bootstrap by the custom
@@ -87,14 +87,14 @@ browsing; it is not a substitute for `cmk`. The hardcoded default pepper from
   Windows is untested, see Spikes.
 - **Lifetimes** (all configurable):
 
-  | Item                 | Default             |
-  | -------------------- | ------------------- |
-  | Root                 | 20 years            |
-  | Sub CA               | 10 years            |
-  | Client cert          | 1 year              |
-  | Server cert          | 90 days             |
-  | Operational cert     | 1 year, auto-rotated |
-  | CRL `nextUpdate`     | 7 days              |
+  | Item             | Default              |
+  | ---------------- | -------------------- |
+  | Root             | 20 years             |
+  | Sub CA           | 10 years             |
+  | Client cert      | 1 year               |
+  | Server cert      | 90 days              |
+  | Operational cert | 1 year, auto-rotated |
+  | CRL `nextUpdate` | 7 days               |
 
 ### 5. Operational key (SCEP RA and OCSP responder)
 
@@ -128,12 +128,12 @@ used only to issue leaf certs and sign CRLs.
 
 Configurable level, default `cloudfront`:
 
-| Level          | Fixed cost | Per request | HTTP OCSP/CRL | mTLS reenroll | Notes |
-| -------------- | ---------- | ----------- | ------------- | ------------- | ----- |
-| `function-url` | $0         | Lambda only | no            | no            | HTTPS only, CRL served by an HTTPS route |
-| `cloudfront`   | $0 (free plan or always-free allowance) | about $0 | yes, on a **separate** distribution (see below) | yes (viewer mTLS, default `*.cloudfront.net` domain works) | Function URL with auth `NONE` and an origin secret header (not OAC, see below) |
-| `http-api`     | $0         | about $1/M  | no            | yes (custom domain) | |
-| `rest-api`     | $0         | about $3.50/M | no          | yes (regional custom domain) | `endpointType: 'regional' \| 'private'` |
+| Level          | Fixed cost                              | Per request   | HTTP OCSP/CRL                                   | mTLS reenroll                                              | Notes                                                                          |
+| -------------- | --------------------------------------- | ------------- | ----------------------------------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `function-url` | $0                                      | Lambda only   | no                                              | no                                                         | HTTPS only, CRL served by an HTTPS route                                       |
+| `cloudfront`   | $0 (free plan or always-free allowance) | about $0      | yes, on a **separate** distribution (see below) | yes (viewer mTLS, default `*.cloudfront.net` domain works) | Function URL with auth `NONE` and an origin secret header (not OAC, see below) |
+| `http-api`     | $0                                      | about $1/M    | no                                              | yes (custom domain)                                        |                                                                                |
+| `rest-api`     | $0                                      | about $3.50/M | no                                              | yes (regional custom domain)                               | `endpointType: 'regional' \| 'private'`                                        |
 
 - **Private REST API**: needs an `execute-api` interface VPC endpoint (about
   $7/month per AZ) and a resource policy. Accept an existing `vpcEndpointId`;
@@ -145,7 +145,7 @@ Configurable level, default `cloudfront`:
 - **OCSP over HTTP** is a `cloudfront`-level feature; at other levels OCSP is
   HTTPS with a documented caveat.
 - **CloudFront origin: public Function URL plus an origin secret, not OAC**
-  (spike 4). OAC requires the *client* to send `x-amz-content-sha256` for every
+  (spike 4). OAC requires the _client_ to send `x-amz-content-sha256` for every
   POST, which EST and SCEP clients will not do, and OAC overwrites the viewer's
   `Authorization` header, which breaks Basic auth. So the origin is a Function
   URL with auth `NONE`, CloudFront adds a secret `x-origin-verify` header, and
@@ -157,7 +157,7 @@ Configurable level, default `cloudfront`:
 - **mTLS and HTTP cannot share a distribution.** CloudFront rejects viewer mTLS
   on any distribution with a behavior that allows HTTP
   (`ViewerMutualAuthentication cannot be enabled when cache behaviors allow
-  HTTP`), and HTTP/3 must be off. The `cloudfront` level therefore creates two
+HTTP`), and HTTP/3 must be off. The `cloudfront` level therefore creates two
   distributions when mTLS is on: an HTTPS-only mTLS one for EST, and a plain one
   for HTTP OCSP and CRL.
 - **CloudFront trust store**: a snapshot of a CA bundle in S3, read once at
@@ -193,12 +193,12 @@ A single DynamoDB table (on-demand, point-in-time recovery on), keyed by CA
 **label** rather than DN, since a DN changes when a CA is renewed and the label
 is already in the endpoint paths.
 
-| Item             | PK            | SK              | Notable attributes |
-| ---------------- | ------------- | --------------- | ------------------ |
-| CA record        | `CA#<label>`  | `META`          | cert PEM, `keyRef` (backend plus ARN or parameter name), `spki`, `algorithm`, state, `crlNumber`, `parent` |
-| Issued cert      | `CA#<label>`  | `CERT#<serial>` | subject DN, `owner` (authenticated username), profile, notBefore/notAfter, `status` (`V`/`R`), `revokedAt`, `reason`, cert DER, `ttl` |
-| Operational cert | `CA#<label>`  | `OPS#<n>`       | cert PEM, `keyRef`, active flag |
-| Published CRL    | `CA#<label>`  | `CRL`           | published `crlNumber` (see section 11) |
+| Item             | PK           | SK              | Notable attributes                                                                                                                    |
+| ---------------- | ------------ | --------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| CA record        | `CA#<label>` | `META`          | cert PEM, `keyRef` (backend plus ARN or parameter name), `spki`, `algorithm`, state, `crlNumber`, `parent`                            |
+| Issued cert      | `CA#<label>` | `CERT#<serial>` | subject DN, `owner` (authenticated username), profile, notBefore/notAfter, `status` (`V`/`R`), `revokedAt`, `reason`, cert DER, `ttl` |
+| Operational cert | `CA#<label>` | `OPS#<n>`       | cert PEM, `keyRef`, active flag                                                                                                       |
+| Published CRL    | `CA#<label>` | `CRL`           | published `crlNumber` (see section 11)                                                                                                |
 
 - A GSI on (`owner`, subject) serves reenrollment and "my certificates".
 - A sparse GSI on `status = R` serves CRL building.
@@ -273,26 +273,26 @@ interface CaKeyStore {
 
 Use:
 
-| Library | Why |
-| ------- | --- |
-| `aws-cdk-lib`, `constructs` | Everything needed is inside it. |
-| `@peculiar/x509` | Cert, CSR, CRL generation and parsing. |
-| `pkijs`, `asn1js` | CMS `SignedData` and `EnvelopedData` (SCEP) and OCSP. |
+| Library                                                                                                              | Why                                                                            |
+| -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `aws-cdk-lib`, `constructs`                                                                                          | Everything needed is inside it.                                                |
+| `@peculiar/x509`                                                                                                     | Cert, CSR, CRL generation and parsing.                                         |
+| `pkijs`, `asn1js`                                                                                                    | CMS `SignedData` and `EnvelopedData` (SCEP) and OCSP.                          |
 | `@aws-sdk/client-*` (`kms`, `ssm`, `secrets-manager`, `dynamodb`, `lib-dynamodb`, `s3`, `cognito-identity-provider`) | Per-service clients, external to the bundle (provided by the Node 24 runtime). |
-| `NodejsFunction` (esbuild) | Bundles at synth; removes the separate esbuild script. |
-| `@types/aws-lambda` | Types only. |
-| `aws-sdk-client-mock` (dev) | Unit tests for the AWS-backed key stores. |
+| `NodejsFunction` (esbuild)                                                                                           | Bundles at synth; removes the separate esbuild script.                         |
+| `@types/aws-lambda`                                                                                                  | Types only.                                                                    |
+| `aws-sdk-client-mock` (dev)                                                                                          | Unit tests for the AWS-backed key stores.                                      |
 
 Dropped from `main`:
 
-| Library | Why |
-| ------- | --- |
-| `@aws-solutions-constructs/aws-apigateway-lambda` | REST only; front door is now configurable. |
-| `@peculiar/webcrypto`, custom `NodeCryptoEngine` | Node's `crypto.webcrypto` does this natively. |
-| `@peculiar/asn1-pkcs8`, pkijs PBES2 key encryption | Replaced by AES-256-GCM via Node `crypto`. |
-| Lambda Powertools | Too heavy; a tiny structured logger is enough. |
-| `zod` and similar | Hand-written validation at synth is enough. |
-| `eslint`, `prettier`, `vitest` | Match sibling projects instead (see below). |
+| Library                                            | Why                                            |
+| -------------------------------------------------- | ---------------------------------------------- |
+| `@aws-solutions-constructs/aws-apigateway-lambda`  | REST only; front door is now configurable.     |
+| `@peculiar/webcrypto`, custom `NodeCryptoEngine`   | Node's `crypto.webcrypto` does this natively.  |
+| `@peculiar/asn1-pkcs8`, pkijs PBES2 key encryption | Replaced by AES-256-GCM via Node `crypto`.     |
+| Lambda Powertools                                  | Too heavy; a tiny structured logger is enough. |
+| `zod` and similar                                  | Hand-written validation at synth is enough.    |
+| `eslint`, `prettier`, `vitest`                     | Match sibling projects instead (see below).    |
 
 ## Tooling
 
@@ -341,7 +341,7 @@ Runtime is Node 24 on arm64.
    - Not covered: TLS server auth with an ECDSA server cert, EST over HTTPS,
      Basic auth, and SCEP.
    - SCEP from Windows needs MDM (Intune SCEP profile) and a deployed HTTPS
-     endpoint; NDES is a SCEP *server*, not a client. Test SCEP protocol
+     endpoint; NDES is a SCEP _server_, not a client. Test SCEP protocol
      conformance with `jscep` (in `../jscep`) first, then Intune as an
      integration test. Check Intune's key algorithm and challenge-password
      expectations before relying on it.
@@ -352,7 +352,7 @@ Runtime is Node 24 on arm64.
      returns `NotAuthorizedException`.
    - Admin-only creation works (`AllowAdminCreateUserOnly`, `admin-create-user`
      with `--message-action SUPPRESS`, then `admin-set-user-password
-     --permanent`), with no email or SMS involved.
+--permanent`), with no email or SMS involved.
    - The ID token carries `cognito:groups`, so the group-to-profile mapping
      (section 6) needs no extra `AdminListGroupsForUser` call or IAM permission.
    - `InitiateAuth` is an unauthenticated API: it worked with `--no-sign-request`.

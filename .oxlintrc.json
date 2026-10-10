@@ -1,0 +1,22 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "unicorn", "oxc", "import", "node", "jest"],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "error",
+    "perf": "error"
+  },
+  "env": {
+    "node": true,
+    "es2024": true
+  },
+  "rules": {
+    // CDK constructs are instantiated for their side effect on the construct tree.
+    "no-new": "off",
+    // Parsing and validation narrow `unknown` input with assertions after runtime checks.
+    "typescript/no-unsafe-type-assertion": "off",
+    // CDK template assertions are assertions too.
+    "jest/expect-expect": ["error", { "assertFunctionNames": ["expect", "template.*", "Template.*"] }]
+  },
+  "ignorePatterns": ["cdk.out/**", "spikes/**"]
+}
