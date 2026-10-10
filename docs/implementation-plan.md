@@ -589,6 +589,26 @@ a final pass for the "Open items" in design.md.
 source, and `cdk destroy` leaves nothing billable behind (retained resources,
 if any, are listed).
 
+**Status: done.** What was added, and what the pass found:
+
+- `README.md`: what it is, quick start, how to enrol, the key store and front
+  door decision tables, the cost table, the protection model and the limits.
+- `docs/operations.md`: first-deployment checklist, the offline root,
+  replacing a CA, rotating each secret, users and groups, the trust store,
+  troubleshooting, and destroying (what is retained and why).
+- `test/logging.test.ts`: drives EST and revocation, including a wrong
+  password and a garbage request, and asserts no password, header, request,
+  certificate or key reaches a log line. The least-privilege assertions
+  (runtime role without the root key, per-backend statements, no cognito
+  permission, no writer for secrets) are in `test/aws-ca.test.ts`; cdk-nag runs
+  for every front door, key backend and OCSP signing mode with each
+  acknowledgement carrying its reason.
+- `docs/design.md` "Open items" is now the honest list of what is deferred or
+  unverified, replacing the old placeholder.
+- Real-AWS suites: `stack` (deploy, EST, OCSP, revocation, SCEP with jscep,
+  update, destroy), `cloudfront` (origin secret, plain-HTTP CRL/OCSP, optional
+  mTLS, revoked certificate refused, destroy), `keystore` and `repository`.
+
 ## Cross-slice risks
 
 | Risk                                                  | Mitigation                                                                                                           |

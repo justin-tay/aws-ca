@@ -1,6 +1,6 @@
 # aws-ca rewrite: design
 
-Status: agreed after a design review, not yet implemented. Branch: `new`.
+Status: implemented on branch `new` (slices 0 to 11); see the plan for notes on each.
 The pre-existing app lives on `main` and is not migrated (clean break).
 
 ## Purpose
@@ -475,11 +475,29 @@ Runtime is Node 24 on arm64.
 
 ## Open items
 
-None from the design review. Work that remains is the implementation itself,
-plus two follow-ups from the spikes:
+The implementation is complete through slice 11. What remains is deliberate:
 
-- SCEP conformance with `jscep`, then an Intune SCEP profile as an integration
-  test (spike 2).
-- Revocation checking of client certs at the CloudFront trust store
-  (`UseClientCertificateOCSPEndpoint` or a Connection Function), and whether
-  viewer mTLS carries a charge (spike 4).
+- **One-time SCEP challenges (deferred).** A CA-issued, single-use, CN-bound
+  challenge with a TTL, requested by an `est-admin` over an endpoint, would remove
+  the weakness of the shared challenge. If built, also serve an NDES-shaped page
+  at `/certsrv/mscep_admin/` (a 32 hex character password in the body, as
+  PSCertificateEnrollment's `Get-NDESOTP` scrapes it) behind Cognito Basic, so
+  NDES-style tooling works unchanged. It needs an atomic consume in the table.
+- **MDM challenge validators (not planned).** Intune validates a challenge by
+  calling Microsoft's SCEP API with an Entra application credential; Jamf and
+  Workspace ONE have equivalents. A validator interface would be small, but each
+  integration is untestable without that tenant, so none is built.
+- **Intune SCEP as an integration test** and **API Gateway mTLS against AWS**
+  both need things this project did not have (a tenant; a domain and an ACM
+  certificate), so neither is verified.
+- **Sub CA certificates carry no CRL/AIA URLs**, so nothing points at the root
+  CRL. The URLs are not known when they are issued; a stable custom domain would
+  make them knowable.
+- **Revocation at the CloudFront trust store** is not used; the Lambda checks
+  every certificate presented for mTLS renewal instead. Whether viewer mTLS
+  carries a CloudFront charge is unconfirmed (nothing was observed on the bill).
+- **SigV4 (IAM) authentication** shares the `Authorization` header with Basic and
+  was left out of the configuration model (see section 8).
+- **Old operational keys** are not deleted after rotation (one parameter a year
+  per CA), and **CA renewal is "add a CA"** rather than re-signing in place
+  (docs/operations.md).
