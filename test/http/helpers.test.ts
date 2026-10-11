@@ -43,6 +43,11 @@ describe('json and binary', () => {
   });
 });
 
+const status = (r: HttpRequest, required = true): number | undefined => {
+  const result = readJsonBody(r, { required });
+  return 'response' in result ? result.response.status : undefined;
+};
+
 describe('readJsonBody', () => {
   const type = { 'content-type': 'application/json' };
 
@@ -51,10 +56,6 @@ describe('readJsonBody', () => {
   });
 
   it('refuses a wrong type, an empty or large body, bad JSON and a non-object', () => {
-    const status = (r: HttpRequest, required = true): number | undefined => {
-      const result = readJsonBody(r, { required });
-      return 'response' in result ? result.response.status : undefined;
-    };
     expect(status(request({ 'content-type': 'text/plain' }, '{}'))).toBe(415);
     expect(status(request(type, ''))).toBe(400);
     expect(status(request(type, 'x'.repeat(BODY_LIMITS.json + 1)))).toBe(400);
