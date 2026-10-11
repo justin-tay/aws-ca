@@ -99,6 +99,8 @@ export interface AwsCaConfigInput {
   ocsp?: { enabled?: boolean; signing?: OcspSigning; maxAgeSeconds?: number; nextUpdateHours?: number };
   crl?: { nextUpdateDays?: number };
   lifetimes?: { clientDays?: number; serverDays?: number };
+  /** How long a certificate record is kept after it expires, before DynamoDB removes it. Default 90. */
+  retention?: { afterExpiryDays?: number };
   policy?: { allowedDomainSuffixes?: string[]; subjectTemplate?: string };
   /** `scep` is the group that may request dynamic SCEP challenges (default `scep-admin`). */
   groups?: { client?: string; server?: string; admin?: string; scep?: string };
@@ -163,6 +165,7 @@ export interface ResolvedConfig {
   ocsp: { enabled: boolean; signing: OcspSigning; maxAgeSeconds: number; nextUpdateHours: number };
   crl: { nextUpdateDays: number };
   lifetimes: { clientDays: number; serverDays: number };
+  retention: { afterExpiryDays: number };
   policy: { allowedDomainSuffixes: string[]; subjectTemplate: string };
   groups: { client: string; server: string; admin: string; scep: string };
   auth: { cognitoTier: CognitoTier };

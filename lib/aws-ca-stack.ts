@@ -131,7 +131,15 @@ export class AwsCaStack extends Stack {
     });
     this.apiRole = new Role(this, 'ApiRole', { assumedBy: new ServicePrincipal('lambda.amazonaws.com') });
     apiLogs.grantWrite(this.apiRole);
-    this.table.grantReadWriteData(this.apiRole);
+    // Exactly what the request path does: read, and write one item at a time. No scan, no batch.
+    this.table.grant(
+      this.apiRole,
+      'dynamodb:GetItem',
+      'dynamodb:Query',
+      'dynamodb:PutItem',
+      'dynamodb:UpdateItem',
+      'dynamodb:DeleteItem',
+    );
     this.apiRole.addToPolicy(
       new PolicyStatement({
         sid: 'Crl',

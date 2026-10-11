@@ -275,7 +275,8 @@ describe('dynamic SCEP challenges', () => {
 
   it('consumes with one conditional delete that also checks expiry and common name', async () => {
     dynamo.on(DeleteCommand).resolves({});
-    await repo.consumeScepChallenge('issuing', 'ab', { commonName: 'd', now: new Date() });
+    const result = await repo.consumeScepChallenge('issuing', 'ab', { commonName: 'd', now: new Date() });
+    expect(result).toEqual({ consumed: false, reason: 'unknown' });
     const input = firstInput(dynamo.commandCalls(DeleteCommand));
     expect(input.Key).toEqual({ pk: 'CA#issuing', sk: 'SCEPOTP#ab' });
     expect(input.ConditionExpression).toContain('expiresAtEpoch > :now');

@@ -133,6 +133,7 @@ function createRuntime(): Runtime {
   const repository = new DynamoCaRepository({
     client: createDocumentClient(),
     tableName: required('TABLE_NAME'),
+    retentionAfterExpiryDays: config.retention.afterExpiryDays,
   });
   const authenticator = new CognitoAuthenticator({
     client: new CognitoIdentityProviderClient({}),

@@ -337,6 +337,27 @@ describe('SCEP', () => {
   });
 });
 
+const warned = (scep: unknown): boolean =>
+  resolve(withValid({ scep })).warnings.some((w) => w.includes('-PasswordLength'));
+
+describe('retention and long dynamic challenges', () => {
+  it('keeps expired certificate records 90 days by default, and takes another number', () => {
+    expect(resolve(withValid({})).retention).toEqual({ afterExpiryDays: 90 });
+    expect(resolve(withValid({ retention: { afterExpiryDays: 30 } })).retention).toEqual({
+      afterExpiryDays: 30,
+    });
+    expect(issuesOf(withValid({ retention: { afterExpiryDays: -1 } })).map((i) => i.path)).toEqual([
+      'retention.afterExpiryDays',
+    ]);
+  });
+
+  it('warns when dynamic challenges are not NDES-length, and not otherwise', () => {
+    expect(warned({ challenge: 'dynamic' })).toBe(false);
+    expect(warned({ challenge: 'dynamic', dynamicChallenge: { lengthBytes: 16 } })).toBe(true);
+    expect(warned({ challenge: 'static', dynamicChallenge: { lengthBytes: 16 } })).toBe(false);
+  });
+});
+
 describe('the CloudFront origin secret version', () => {
   it('defaults to 1 and can be raised', () => {
     expect(resolve(withValid({ frontDoor: { type: 'cloudfront' } })).frontDoor).toMatchObject({

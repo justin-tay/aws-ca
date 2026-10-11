@@ -358,6 +358,22 @@ describe('delegated keys', () => {
 const canList = (stack: AwsCaStack): boolean =>
   allows(statementsOf(stack, 'bootstrap')).some((s) => actionsOf(s).includes('s3:ListBucket'));
 
+describe('the runtime role and the table', () => {
+  it('reads and writes single items: no scan, no batch', () => {
+    const actions = allows(statementsOf(stackFor(), 'api'))
+      .flatMap(actionsOf)
+      .filter((action) => action.startsWith('dynamodb:'))
+      .toSorted();
+    expect(actions).toEqual([
+      'dynamodb:DeleteItem',
+      'dynamodb:GetItem',
+      'dynamodb:PutItem',
+      'dynamodb:Query',
+      'dynamodb:UpdateItem',
+    ]);
+  });
+});
+
 describe('the bootstrap role and the trust bundles', () => {
   // The delete handler lists the trust prefix to empty it, so the role may list it exactly where
   // bundles can exist. A function-url stack once failed to delete because it asked without being

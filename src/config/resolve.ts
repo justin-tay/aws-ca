@@ -595,6 +595,7 @@ export function resolveConfig(input: AwsCaConfigInput = {}): ResolvedConfig {
     'ocsp',
     'crl',
     'lifetimes',
+    'retention',
     'policy',
     'groups',
     'auth',
@@ -695,6 +696,11 @@ export function resolveConfig(input: AwsCaConfigInput = {}): ResolvedConfig {
     }
   }
 
+  const retentionRec = section(c, top.retention, 'retention', ['afterExpiryDays']);
+  const retention = {
+    afterExpiryDays: integer(c, retentionRec.afterExpiryDays, 'retention.afterExpiryDays', 0, 3650, 90),
+  };
+
   const policyRec = section(c, top.policy, 'policy', ['allowedDomainSuffixes', 'subjectTemplate']);
   const allowedDomainSuffixes = resolveSuffixes(
     c,
@@ -720,6 +726,13 @@ export function resolveConfig(input: AwsCaConfigInput = {}): ResolvedConfig {
     );
   }
 
+  if (scepEnabled && scepChallenge !== 'static' && dynamicChallenge.lengthBytes !== 8) {
+    warnings.push(
+      `Dynamic SCEP challenges are ${dynamicChallenge.lengthBytes * 2} hex digits. Get-NDESOTP reads 16 by ` +
+        `default, so pass -PasswordLength ${dynamicChallenge.lengthBytes}; MDMs written for NDES may expect 16.`,
+    );
+  }
+
   return {
     namePrefix,
     rootCa,
@@ -729,6 +742,7 @@ export function resolveConfig(input: AwsCaConfigInput = {}): ResolvedConfig {
     ocsp: { enabled: ocspEnabled, signing: ocspSigning, maxAgeSeconds, nextUpdateHours },
     crl,
     lifetimes,
+    retention,
     policy: { allowedDomainSuffixes, subjectTemplate },
     groups,
     auth,

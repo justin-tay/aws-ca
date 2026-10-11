@@ -11,7 +11,8 @@ devices against the URLs it prints.
 
 > The design and the reasoning behind it are in [docs/design.md](docs/design.md);
 > day-two procedures are in [docs/operations.md](docs/operations.md). The
-> previous implementation is on the `main` branch and is not migrated.
+> previous implementation is kept on another branch (it was `main` before this one
+> replaced it) and is not migrated.
 
 ## What you get
 
@@ -50,15 +51,17 @@ side.
 The deploy takes a few minutes; with the `cloudfront` front door it takes about
 ten more per distribution. It prints:
 
-| Output                                        | Meaning                                                              |
-| --------------------------------------------- | -------------------------------------------------------------------- |
-| `RootCaFingerprint`                           | SHA-256 of the root certificate. Compare it before trusting the root |
-| `EstEndpoint`                                 | EST base URL                                                         |
-| `ScepEndpoint`                                | SCEP URL for the first issuing CA                                    |
-| `ScepChallengeParameter`                      | the SSM parameter that holds the static SCEP challenge               |
-| `ScepChallengeUrl`                            | where an MDM fetches a single-use SCEP challenge (dynamic mode)      |
-| `RevocationBaseUrl`                           | where CRL and OCSP are served (plain HTTP), with `cloudfront`        |
-| `UserPoolId`, `UserPoolClientId`, `TableName` | what you need to manage users and look at data                       |
+| Output                                        | Meaning                                                                                                 |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `RootCaFingerprint`                           | SHA-256 of the root certificate. Compare it before trusting the root                                    |
+| `EstEndpoint`                                 | EST base URL                                                                                            |
+| `ScepEndpoint`                                | SCEP URL for the first issuing CA                                                                       |
+| `ScepChallengeParameter`                      | the SSM parameter that holds the static SCEP challenge                                                  |
+| `ScepChallengeUrl`                            | where an MDM fetches a single-use SCEP challenge (dynamic mode)                                         |
+| `RevocationBaseUrl`                           | where CRL and OCSP are served (plain HTTP), with `cloudfront`                                           |
+| `OriginFunctionUrl`                           | the Function URL behind CloudFront; it refuses requests without the origin secret                       |
+| `OfflineRootKeyParameter`                     | with `rootCa.keyHandling: offline`: read the root key here once, store it offline, delete the parameter |
+| `UserPoolId`, `UserPoolClientId`, `TableName` | what you need to manage users and look at data                                                          |
 
 ### Create a user and enrol
 
@@ -117,9 +120,11 @@ console does not reveal a key) or `customer-managed-key` (a KMS key whose policy
 admits only the Lambda role; about $1 a month). `app-encrypted` defeats casual
 browsing; it is not a substitute for a customer-managed key.
 
-SCEP needs an RSA key it can export (the operational key), so it works with
-`parameter` and `secret`, never `kms`. Turn SCEP off with `scep: { enabled: false }`
-for a KMS-only deployment.
+SCEP needs an RSA key it can export (the operational key), and OCSP uses one by
+default, so with only `kms` CAs that key is still kept in a parameter (or a
+secret): it is delegated and limited, but it is not in KMS. To keep **every** key
+in KMS, turn SCEP off (`scep: { enabled: false }`) and sign OCSP with KMS
+(`ocsp: { signing: 'kms' }`, a dedicated key per CA, or `'ca'`, the CA key itself).
 
 ## Choosing a front door
 
@@ -142,7 +147,11 @@ Things to know:
   share one); the plain one serves only `/crl/*` and `/ocsp/*`.
 - **`http-api` and `rest-api`** have no Function URL, and the default `execute-api`
   address is switched off when mTLS is on. mTLS needs a custom domain and an ACM
-  certificate that you own.
+  certificate that you own. **API Gateway mTLS is not optional**: as far as AWS
+  documents it, a client must present a certificate to connect at all, so a device
+  without one cannot make its first enrolment by password on that domain, and CRL
+  and OCSP clients need one too. This is unverified here (no domain was available);
+  use `cloudfront` where devices must enrol with a password first.
 - **Private `rest-api`** is reachable only through an `execute-api` VPC endpoint
   (yours, or one this stack creates), and mTLS is not available on it.
 - OCSP over HTTP (as many clients expect) exists only with `cloudfront`.
@@ -170,11 +179,17 @@ thousands of requests). Prices are approximate; check the AWS pricing pages.
   only the bootstrap function can use the root's, and the runtime role carries an
   explicit deny for it. With `rootCa.keyHandling: 'offline'` the root key is handed
   over once and removed from the store.
-- **No secrets in the template or environment.** Keys, the encryption secret, the
-  SCEP challenge and the origin secret are SSM SecureStrings; logs are redacted by
-  field name (authorization, passwords, tokens, keys, CSRs and PEM).
+- **No secrets in the template or environment.** Keys, the encryption secret and
+  the SCEP challenge are SSM SecureStrings, and logs are redacted by field name
+  (authorization, passwords, tokens, keys, CSRs and PEM). The one exception is the
+  CloudFront origin secret: it also has to be written into the distribution's
+  origin header, so it is visible to anyone who can read that distribution's
+  configuration, and it passes through the bootstrap custom resource's response.
+  It only gates the origin (see "front door"); rotate it with
+  `frontDoor.originSecretVersion`.
 - **Revocation is checked where it matters.** OCSP and the CRL come from the
-  table; a certificate used for mTLS renewal is looked up and refused if revoked.
+  table; a certificate used for mTLS renewal is looked up and refused if revoked,
+  and its owner must still be an enabled Cognito user in the right group.
 - **The static SCEP challenge is a shared secret.** Anyone who holds it can obtain
   a certificate for any name. Treat it like a password, rotate it
   ([docs/operations.md](docs/operations.md)), and prefer EST where you can. Set

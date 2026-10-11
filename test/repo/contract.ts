@@ -489,10 +489,10 @@ export function repositoryContract(name: string, create: () => Promise<Repositor
         await repo.putScepChallenge(record, { maxOutstanding: 10, now: NOW });
         expect(
           await repo.consumeScepChallenge(label, record.hash, { commonName: 'device-1', now: at }),
-        ).toEqual(record);
+        ).toEqual({ consumed: true, record });
         expect(
           await repo.consumeScepChallenge(label, record.hash, { commonName: 'device-1', now: at }),
-        ).toBeUndefined();
+        ).toEqual({ consumed: false, reason: 'unknown' });
       });
 
       it('lets exactly one of many concurrent consumers win', async () => {
@@ -504,7 +504,7 @@ export function repositoryContract(name: string, create: () => Promise<Repositor
             repo.consumeScepChallenge(label, record.hash, { commonName: 'any', now: at }),
           ),
         );
-        expect(results.filter((result) => result !== undefined)).toHaveLength(1);
+        expect(results.filter((result) => result.consumed)).toHaveLength(1);
       });
 
       it('is not consumed by a request for another common name', async () => {
@@ -513,10 +513,10 @@ export function repositoryContract(name: string, create: () => Promise<Repositor
         await repo.putScepChallenge(record, { maxOutstanding: 10, now: NOW });
         expect(
           await repo.consumeScepChallenge(label, record.hash, { commonName: 'device-2', now: at }),
-        ).toBeUndefined();
+        ).toEqual({ consumed: false, reason: 'bound' });
         expect(
-          await repo.consumeScepChallenge(label, record.hash, { commonName: 'device-1', now: at }),
-        ).toBeDefined();
+          (await repo.consumeScepChallenge(label, record.hash, { commonName: 'device-1', now: at })).consumed,
+        ).toBe(true);
       });
 
       it('works for any common name when it is not bound', async () => {
@@ -524,8 +524,8 @@ export function repositoryContract(name: string, create: () => Promise<Repositor
         const record = challengeRecord(label);
         await repo.putScepChallenge(record, { maxOutstanding: 10, now: NOW });
         expect(
-          await repo.consumeScepChallenge(label, record.hash, { commonName: 'whatever', now: at }),
-        ).toBeDefined();
+          (await repo.consumeScepChallenge(label, record.hash, { commonName: 'whatever', now: at })).consumed,
+        ).toBe(true);
       });
 
       it('is refused once expired', async () => {
@@ -533,9 +533,10 @@ export function repositoryContract(name: string, create: () => Promise<Repositor
         const record = challengeRecord(label);
         await repo.putScepChallenge(record, { maxOutstanding: 10, now: NOW });
         const later = new Date(record.expiresAt.getTime() + 1000);
-        expect(
-          await repo.consumeScepChallenge(label, record.hash, { commonName: 'x', now: later }),
-        ).toBeUndefined();
+        expect(await repo.consumeScepChallenge(label, record.hash, { commonName: 'x', now: later })).toEqual({
+          consumed: false,
+          reason: 'expired',
+        });
       });
 
       it('is scoped to its CA', async () => {
@@ -543,9 +544,10 @@ export function repositoryContract(name: string, create: () => Promise<Repositor
         const second = uniqueLabel();
         const record = challengeRecord(first);
         await repo.putScepChallenge(record, { maxOutstanding: 10, now: NOW });
-        expect(
-          await repo.consumeScepChallenge(second, record.hash, { commonName: 'x', now: at }),
-        ).toBeUndefined();
+        expect(await repo.consumeScepChallenge(second, record.hash, { commonName: 'x', now: at })).toEqual({
+          consumed: false,
+          reason: 'unknown',
+        });
       });
 
       it('limits the outstanding challenges of a CA, counting only unexpired ones', async () => {

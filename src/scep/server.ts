@@ -272,8 +272,10 @@ export class ScepServer {
       // First enrollment: signed with a throwaway certificate, and authorised by the challenge. The
       // certificate's key need not be the one being certified: the CSR proves possession of that,
       // and the response is encrypted to the signer's key, which is public information anyway.
-      if (!(await this.challengeAccepted(ca, csr.challengePassword, decision.commonName))) {
-        throw new ScepError(FailInfo.badRequest, 'The challenge password is wrong.');
+      const verdict = await this.challengeVerdict(ca, csr.challengePassword, decision.commonName);
+      if (verdict !== 'accepted') {
+        // The client is told only "bad request"; the log says which kind of wrong it was.
+        throw new ScepError(FailInfo.badRequest, `The challenge password is wrong (${verdict}).`);
       }
     } else {
       // Renewal: signed with a certificate this CA issued, which stands in for the challenge.
@@ -314,18 +316,22 @@ export class ScepServer {
    * The static challenge is compared; a dynamic one is consumed, atomically, only here, after the
    * request has passed the policy, and only if it is bound to no other name.
    */
-  private async challengeAccepted(
+  private async challengeVerdict(
     ca: CaRecord,
     given: string | undefined,
     commonName: string,
-  ): Promise<boolean> {
+  ): Promise<'accepted' | 'missing' | 'mismatch' | 'unknown' | 'expired' | 'bound'> {
     if (given === undefined || given === '') {
-      return false;
+      return 'missing';
     }
     if (this.deps.challenge && sameSecret(given, await this.deps.challenge.get())) {
-      return true;
+      return 'accepted';
     }
-    return (await this.deps.dynamicChallenges?.consume(ca.label, given, commonName)) ?? false;
+    if (!this.deps.dynamicChallenges) {
+      return 'mismatch';
+    }
+    const outcome = await this.deps.dynamicChallenges.consume(ca.label, given, commonName);
+    return outcome === 'consumed' ? 'accepted' : outcome;
   }
 
   private async getCert(ca: CaRecord, payload: Uint8Array): Promise<X509Certificate> {

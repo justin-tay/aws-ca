@@ -6,6 +6,7 @@ import {
   type CertificateRecord,
   type OperationalCertificateRecord,
   type Page,
+  type ScepChallengeConsumption,
   type ScepChallengeRecord,
 } from './types';
 
@@ -207,17 +208,19 @@ export class InMemoryCaRepository implements CaRepository {
     caLabel: string,
     hash: string,
     options: { commonName: string; now: Date },
-  ): Promise<ScepChallengeRecord | undefined> {
+  ): Promise<ScepChallengeConsumption> {
     const key = `${caLabel}#${hash}`;
     const found = this.challenges.get(key);
-    if (
-      !found ||
-      found.expiresAt <= options.now ||
-      (found.commonName !== undefined && found.commonName !== options.commonName)
-    ) {
-      return Promise.resolve(undefined);
+    if (!found) {
+      return Promise.resolve({ consumed: false, reason: 'unknown' });
+    }
+    if (found.expiresAt <= options.now) {
+      return Promise.resolve({ consumed: false, reason: 'expired' });
+    }
+    if (found.commonName !== undefined && found.commonName !== options.commonName) {
+      return Promise.resolve({ consumed: false, reason: 'bound' });
     }
     this.challenges.delete(key);
-    return Promise.resolve(clone(found));
+    return Promise.resolve({ consumed: true, record: clone(found) });
   }
 }

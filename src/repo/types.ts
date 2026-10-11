@@ -46,6 +46,12 @@ export interface OperationalCertificateRecord {
   active: boolean;
 }
 
+/** Why a challenge could not be consumed. For the log only: the client is told nothing of it. */
+export type ScepChallengeRefusal = 'unknown' | 'expired' | 'bound';
+export type ScepChallengeConsumption =
+  | { consumed: true; record: ScepChallengeRecord }
+  | { consumed: false; reason: ScepChallengeRefusal };
+
 /** A dynamic (single-use) SCEP challenge. Only a hash of the challenge is kept. */
 export interface ScepChallengeRecord {
   caLabel: string;
@@ -152,12 +158,12 @@ export interface CaRepository {
   ): Promise<void>;
   /**
    * Consumes a challenge: exactly one of any number of concurrent callers gets the record. Returns
-   * undefined, and consumes nothing, when the challenge is unknown, used, expired at `now`, or
-   * bound to a different common name than `commonName`.
+   * a refusal, and consumes nothing, when the challenge is unknown or used (`unknown`), expired at
+   * `now`, or bound to a different common name than `commonName`.
    */
   consumeScepChallenge(
     caLabel: string,
     hash: string,
     options: { commonName: string; now: Date },
-  ): Promise<ScepChallengeRecord | undefined>;
+  ): Promise<ScepChallengeConsumption>;
 }

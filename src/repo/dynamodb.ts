@@ -19,6 +19,7 @@ import {
   type CertificateRecord,
   type OperationalCertificateRecord,
   type Page,
+  type ScepChallengeConsumption,
   type ScepChallengeRecord,
 } from './types';
 
@@ -486,7 +487,7 @@ export class DynamoCaRepository implements CaRepository {
     caLabel: string,
     hash: string,
     options: { commonName: string; now: Date },
-  ): Promise<ScepChallengeRecord | undefined> {
+  ): Promise<ScepChallengeConsumption> {
     try {
       const response = await this.client.send(
         new DeleteCommand({
@@ -499,12 +500,23 @@ export class DynamoCaRepository implements CaRepository {
           ReturnValues: 'ALL_OLD',
         }),
       );
-      return response.Attributes ? challengeFromItem(response.Attributes) : undefined;
-    } catch (error) {
-      if (isConditionFailure(error)) {
-        return undefined;
+      if (!response.Attributes) {
+        return { consumed: false, reason: 'unknown' };
       }
-      throw error;
+      return { consumed: true, record: challengeFromItem(response.Attributes) };
+    } catch (error) {
+      if (!isConditionFailure(error)) {
+        throw error;
+      }
+      // Say why, for the log: the condition failed, so look at what is there.
+      const item = await this.get(keys.scepChallenge(caLabel, hash));
+      if (!item) {
+        return { consumed: false, reason: 'unknown' };
+      }
+      return {
+        consumed: false,
+        reason: (item.expiresAtEpoch as number) <= epoch(options.now) ? 'expired' : 'bound',
+      };
     }
   }
 }

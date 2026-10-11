@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
-import type { CaRepository } from '../repo';
+import type { CaRepository, ScepChallengeRefusal } from '../repo';
 
 export interface DynamicChallengeOptions {
   repository: CaRepository;
@@ -51,14 +51,18 @@ export class DynamicChallenges {
   }
 
   /**
-   * Uses `challenge` up for a request for `commonName`. True for exactly one caller; false for an
-   * unknown, used, expired or differently bound challenge, without saying which.
+   * Uses `challenge` up for a request for `commonName`. `consumed` for exactly one caller, else
+   * why not: for the log, never for the client.
    */
-  async consume(caLabel: string, challenge: string, commonName: string): Promise<boolean> {
-    const record = await this.options.repository.consumeScepChallenge(caLabel, hashChallenge(challenge), {
+  async consume(
+    caLabel: string,
+    challenge: string,
+    commonName: string,
+  ): Promise<'consumed' | ScepChallengeRefusal> {
+    const result = await this.options.repository.consumeScepChallenge(caLabel, hashChallenge(challenge), {
       commonName,
       now: this.now(),
     });
-    return record !== undefined;
+    return result.consumed ? 'consumed' : result.reason;
   }
 }

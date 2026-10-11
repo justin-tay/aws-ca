@@ -1,7 +1,9 @@
 # aws-ca rewrite: design
 
-Status: implemented on branch `new` (slices 0 to 11); see the plan for notes on each.
-The pre-existing app lives on `main` and is not migrated (clean break).
+Status: implemented (slices 0 to 12); see the plan for notes on each.
+The pre-existing app is not migrated (clean break). Throughout this document `main`
+means that previous implementation: the branch that was `main` before this one
+replaced it (it is kept on another branch).
 
 ## Purpose
 
@@ -92,7 +94,7 @@ the first run against real AWS; a mocked SSM accepts any name.
 - One Root and a **list** of subordinate CAs. The default is one issuing Sub CA
   that issues both `client` and `server` profiles. Data model and endpoints are
   keyed by CA label from day one, so adding a CA is config-only.
-- **Root key handling** `rootKeyHandling: 'retain' | 'offline'`. Default
+- **Root key handling** `rootCa.keyHandling: 'retain' | 'offline'`. Default
   `retain`: the key stays in its backend and is readable only by a separate
   admin role (bootstrap and Sub CA renewal), never the runtime role. `offline`
   exports it once for the user to store. Deleting it is not offered, because the
@@ -191,7 +193,12 @@ HTTP`), and HTTP/3 must be off. The `cloudfront` level therefore creates two
   revocation by itself.
 - **mTLS is optional, not required**, so that a device with no certificate yet can
   make its first enrollment by password; a certificate that is presented is
-  validated against the trust store, and the Lambda also checks its status.
+  validated against the trust store, and the Lambda also checks its status and
+  looks its owner up (enabled, still in the profile's group). This holds for
+  CloudFront only. API Gateway's custom-domain mTLS, as far as it is documented,
+  has no optional mode, so there password first-enrollment, CRL and OCSP also need
+  a client certificate; that is unverified here (no domain was available), and the
+  README says so.
 - **Origin request policy**: whitelist headers explicitly. The `allViewer*`
   behaviors forward the viewer's `Host`, which a Function URL answers with 403.
   `x-amz-content-sha256` cannot be whitelisted.
@@ -271,7 +278,8 @@ is already in the endpoint paths.
 - A sparse GSI on `status = R` serves CRL building.
 - Serials are 16 random bytes with the high bit cleared, written with
   `attribute_not_exists` so a collision fails rather than overwrites.
-- DynamoDB TTL removes expired certs 90 days after `notAfter` (configurable).
+- DynamoDB TTL removes expired certs 90 days after `notAfter`; `retention.afterExpiryDays`
+  changes that (0 to 3650).
 - Key attributes are `pk` / `sk`, the owner index is `ownerPk` / `ownerSk` and the
   sparse revoked index is `revokedPk` / `revokedSk`; `TABLE_SCHEMA` in
   `src/repo/schema.ts` is the single definition the stack builds the table from.
@@ -385,7 +393,12 @@ Runtime is Node 24 on arm64.
 - **Never log raw events or headers.** `main`'s `handler.ts` does
   `console.log(event)`, which writes the `Authorization: Basic ...` header
   (the user's password) to CloudWatch.
-- The request path is read-only with respect to CA state.
+- The request path never creates or removes a CA or a key. Its table access is
+  single-item (`GetItem`, `Query`, `PutItem`, `UpdateItem`, `DeleteItem`: no scan,
+  no batch), and it writes only what a request produces: certificates,
+  revocations, CRL numbers and dynamic SCEP challenges. It can read users in the
+  user pool (`AdminGetUser`, `AdminListGroupsForUser`) for renewal by certificate,
+  and nothing else of Cognito.
 - The runtime role never has access to the Root key.
 
 ## Spikes (before implementation)
@@ -526,8 +539,10 @@ challenge); NDES calls a dynamic challenge a one-time password.
   A GET that mints a challenge is acceptable here only because it is
   authenticated, never cached and capped.
 - **Failure behavior.** A wrong, used, expired, unknown or differently bound
-  challenge is the same `badRequest`; the log line carries the CA and reason
-  class, never the value.
+  challenge is the same `badRequest` to the client; the log line carries the CA
+  and the reason class (`unknown` for unknown or used, `expired`, `bound`,
+  `mismatch`, `missing`), never the value. `lengthBytes` other than 8 draws a
+  configuration warning, because `Get-NDESOTP` reads 16 digits by default.
 - **Unverified.** Workspace ONE's own parsing of the page. The Windows tool is
   the verified client (see `docs/windows-enrollment.md`).
 

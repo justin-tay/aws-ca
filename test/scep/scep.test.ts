@@ -435,7 +435,8 @@ describe('SCEP enrollment with dynamic challenges', () => {
     });
     const { challenge: issued } = await clock.issue('issuing', { createdBy: 'mdm' });
     current = new Date(current.getTime() + 2 * 60_000);
-    expect(await clock.consume('issuing', issued, 'device-10')).toBe(false);
+    expect(await clock.consume('issuing', issued, 'device-10')).toBe('expired');
+    expect(await clock.consume('issuing', 'NO-SUCH-ONE', 'device-10')).toBe('unknown');
   });
 
   it('is requested over the NDES-style page and the JSON endpoint, then used', async () => {

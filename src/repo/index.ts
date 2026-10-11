@@ -10,6 +10,8 @@ export type {
   CertificateStatus,
   OperationalCertificateRecord,
   Page,
+  ScepChallengeConsumption,
   ScepChallengeRecord,
+  ScepChallengeRefusal,
   RepositoryErrorCode,
 } from './types';

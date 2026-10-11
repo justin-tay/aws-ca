@@ -106,7 +106,7 @@ export function keyAccessStatements(
         actions: admin
           ? ['secretsmanager:GetSecretValue', 'secretsmanager:CreateSecret', 'secretsmanager:DeleteSecret']
           : ['secretsmanager:GetSecretValue'],
-        resources: labels.map((label) => secretArn(stack, `${prefix.replace(/^\//, '')}/ca/${label}/*`)),
+        resources: inSecrets.map((label) => secretArn(stack, `${prefix.replace(/^\//, '')}/ca/${label}/*`)),
       }),
     );
   }
