@@ -44,6 +44,7 @@ import { AlgorithmIdentifier, Certificate, Name } from '@peculiar/asn1-x509';
 import { X509Certificate } from '@peculiar/x509';
 import type { Signer } from '../ca';
 import { children, derOctet, derPrintable, derUtcTime, parseTime, readTlv, tlv, type Tlv } from './der';
+import { wrapContentKeyForEc } from './key-agreement';
 
 // -- SCEP (RFC 8894) and CMS object identifiers
 const SCEP_MESSAGE_TYPE = '2.16.840.1.113733.1.9.2';
@@ -64,6 +65,19 @@ const DIGESTS: Record<string, 'sha1' | 'sha256' | 'sha384' | 'sha512'> = {
   '2.16.840.1.101.3.4.2.3': 'sha512',
 };
 const SHA256_OID = '2.16.840.1.101.3.4.2.1';
+
+/**
+ * The OIDs an ECDSA signer may state: `ecdsa-with-SHA*`, and `id-ecPublicKey`, which is what Windows'
+ * SCEP client puts there. The digest comes from `digestAlgorithm` either way.
+ */
+const ECDSA_SIGNATURES = new Set([
+  '1.2.840.10045.2.1',
+  '1.2.840.10045.4.1',
+  '1.2.840.10045.4.3.1',
+  '1.2.840.10045.4.3.2',
+  '1.2.840.10045.4.3.3',
+  '1.2.840.10045.4.3.4',
+]);
 
 /** The OIDs of the signature algorithms an RSA signer may state; the digest comes from `digestAlgorithm`. */
 const RSA_SIGNATURES = new Set([
@@ -247,7 +261,16 @@ export function parsePkiMessage(der: Uint8Array): PkiMessage {
   }
 
   const digest = DIGESTS[signerInfo.digestAlgorithm.algorithm];
-  if (!digest || !RSA_SIGNATURES.has(signerInfo.signatureAlgorithm.algorithm)) {
+  const publicKey = createPublicKey({
+    key: Buffer.from(signer.publicKey.rawData),
+    format: 'der',
+    type: 'spki',
+  });
+  const keyType = publicKey.asymmetricKeyType;
+  const stated = signerInfo.signatureAlgorithm.algorithm;
+  const algorithmAllowed =
+    (keyType === 'rsa' && RSA_SIGNATURES.has(stated)) || (keyType === 'ec' && ECDSA_SIGNATURES.has(stated));
+  if (!digest || !algorithmAllowed) {
     throw new ScepError(FailInfo.badAlg, 'Unsupported digest or signature algorithm.');
   }
   const claimed = attributeValue(attributes, CMS_MESSAGE_DIGEST);
@@ -257,26 +280,17 @@ export function parsePkiMessage(der: Uint8Array): PkiMessage {
   if (!claimed || !Buffer.from(readTlv(claimed).content).equals(actual)) {
     throw new ScepError(FailInfo.badMessageCheck, 'The message digest does not match.');
   }
-  const publicKey = createPublicKey({
-    key: Buffer.from(signer.publicKey.rawData),
-    format: 'der',
-    type: 'spki',
-  });
-  if (publicKey.asymmetricKeyType !== 'rsa') {
-    throw new ScepError(FailInfo.badAlg, 'Only RSA signers are supported.');
-  }
   // The signature covers the attributes encoded as a SET OF, not with their [0] tag.
   if (!signedAttrsRaw) {
     throw new ScepError(FailInfo.badRequest, 'The message has no signed attributes.');
   }
   const signedBytes = Buffer.from(signedAttrsRaw);
   signedBytes[0] = 0x31;
-  const valid = verify(
-    digest,
-    signedBytes,
-    { key: publicKey, padding: cryptoConstants.RSA_PKCS1_PADDING },
-    Buffer.from(signerInfo.signature.buffer),
-  );
+  const signature = Buffer.from(signerInfo.signature.buffer);
+  const valid =
+    keyType === 'rsa'
+      ? verify(digest, signedBytes, { key: publicKey, padding: cryptoConstants.RSA_PKCS1_PADDING }, signature)
+      : verify(digest, signedBytes, publicKey, signature);
   if (!valid) {
     throw new ScepError(FailInfo.badMessageCheck, 'The message signature is invalid.');
   }
@@ -430,28 +444,32 @@ export function encryptEnvelope(
     format: 'der',
     type: 'spki',
   });
-  const wrapped = publicEncrypt({ key: publicKey, padding: cryptoConstants.RSA_PKCS1_PADDING }, key);
+  const recipientId = new IssuerAndSerialNumber({
+    issuer: AsnConvert.parse(recipient.issuerName.toArrayBuffer(), Name),
+    serialNumber: toArrayBuffer(Buffer.from(padSerial(recipient.serialNumber), 'hex')),
+  });
+  // An RSA recipient gets the content key wrapped with RSA. An EC recipient (a renewal signed with
+  // an ECDSA certificate) cannot, so the key is agreed with ECDH and wrapped with AES.
+  const recipientInfo =
+    publicKey.asymmetricKeyType === 'ec'
+      ? new RecipientInfo({ kari: wrapContentKeyForEc(key, publicKey, recipientId) })
+      : new RecipientInfo({
+          ktri: new KeyTransRecipientInfo({
+            version: CMSVersion.v0,
+            rid: new RecipientIdentifier({ issuerAndSerialNumber: recipientId }),
+            keyEncryptionAlgorithm: new KeyEncryptionAlgorithmIdentifier({
+              algorithm: RSA_ENCRYPTION,
+              parameters: toArrayBuffer(new Uint8Array([0x05, 0x00])),
+            }),
+            encryptedKey: new OctetString(
+              toArrayBuffer(publicEncrypt({ key: publicKey, padding: cryptoConstants.RSA_PKCS1_PADDING }, key)),
+            ),
+          }),
+        });
 
   const data = new EnvelopedData({
-    version: CMSVersion.v0,
-    recipientInfos: new RecipientInfos([
-      new RecipientInfo({
-        ktri: new KeyTransRecipientInfo({
-          version: CMSVersion.v0,
-          rid: new RecipientIdentifier({
-            issuerAndSerialNumber: new IssuerAndSerialNumber({
-              issuer: AsnConvert.parse(recipient.issuerName.toArrayBuffer(), Name),
-              serialNumber: toArrayBuffer(Buffer.from(padSerial(recipient.serialNumber), 'hex')),
-            }),
-          }),
-          keyEncryptionAlgorithm: new KeyEncryptionAlgorithmIdentifier({
-            algorithm: RSA_ENCRYPTION,
-            parameters: toArrayBuffer(new Uint8Array([0x05, 0x00])),
-          }),
-          encryptedKey: new OctetString(toArrayBuffer(wrapped)),
-        }),
-      }),
-    ]),
+    version: publicKey.asymmetricKeyType === 'ec' ? CMSVersion.v2 : CMSVersion.v0,
+    recipientInfos: new RecipientInfos([recipientInfo]),
     encryptedContentInfo: new EncryptedContentInfo({
       contentType: id_data,
       contentEncryptionAlgorithm: new ContentEncryptionAlgorithmIdentifier({

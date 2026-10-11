@@ -97,6 +97,20 @@ The challenge works once. `Get-NDESOTP` reads the first 16 hex digits (its defau
 `-PasswordLength 8`), which is the default length here (`lengthBytes: 8`); if you
 configure more, pass `-PasswordLength <lengthBytes>`.
 
+### ECDSA keys
+
+`Get-SCEPCertificate -KeyAlgorithm ECDSA_P256` (or `ECDSA_P384`) enrolls: Windows signs the CMS
+message with a throwaway RSA key under `CN=SCEP Protocol Certificate`, so the answer can be
+encrypted to it. (Verified against a local server on Windows 11 with PSCertificateEnrollment 1.0.12.)
+
+**Renewing an ECDSA certificate with `-SigningCert` does not work from Windows' client.** The server
+accepts the request (it reads ECDSA signers, including the `id-ecPublicKey` signature algorithm
+Windows states) and answers with ECDH key agreement, which OpenSSL opens. Windows then fails in
+`ProcessResponseMessage` with `NTE_PERM` (`0x80090010`). The likely cause is that a CNG key of
+algorithm ECDSA can sign but cannot take part in key agreement, so Windows cannot open an answer
+addressed to it; this was not confirmed beyond the error. To replace an ECDSA certificate from
+Windows, enroll again with a new challenge; an RSA certificate renews with `-SigningCert` as above.
+
 EST, with a Cognito user in the `est-client` group (the CN must be the user name):
 
 ```powershell
