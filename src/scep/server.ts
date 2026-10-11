@@ -4,7 +4,7 @@ import { CsrError, canonicalSerial, parseCsr } from '../ca';
 import type { ResolvedConfig } from '../config';
 import { text, type HttpRequest, type HttpResponse } from '../http';
 import type { CertificateIssuer } from '../issuance';
-import { silentLogger, type Logger } from '../log';
+import { errorFields, silentLogger, type Logger } from '../log';
 import type { DecryptingResponder, OperationalKeyService } from '../operational';
 import { PolicyError, decideScepIssuance } from '../policy';
 import type { DynamicChallenges } from './dynamic';
@@ -123,7 +123,10 @@ export class ScepServer {
           return text(400, 'Unsupported operation.');
       }
     } catch (error) {
-      this.logger.error('scep failed', { error });
+      this.logger.event('process_request', 'error', 'A request failed unexpectedly.', {
+        'aws_ca.protocol': 'scep',
+        ...errorFields(error),
+      });
       return text(500, 'Internal error.');
     }
   }
@@ -174,7 +177,11 @@ export class ScepServer {
   private async pkiOperation(ca: CaRecord, message: Uint8Array, baseUrl?: string): Promise<HttpResponse> {
     const responder = await this.deps.operational.decryptingResponder(ca.label);
     if (!responder) {
-      this.logger.error('no operational certificate for scep', { ca: ca.label });
+      this.logger.event('process_request', 'error', 'No registration authority certificate yet.', {
+        'aws_ca.protocol': 'scep',
+        'aws_ca.ca': ca.label,
+        'event.reason': 'not_ready',
+      });
       return text(503, 'SCEP is not ready: no registration authority certificate yet.');
     }
     let parsed: PkiMessage;
@@ -182,7 +189,12 @@ export class ScepServer {
       parsed = parsePkiMessage(message);
     } catch (error) {
       // Without a transaction ID and signer there is nothing to address a CertRep to.
-      this.logger.warn('scep message refused', { reason: (error as Error).message });
+      this.logger.event('process_request', 'denied', 'The SCEP message could not be read.', {
+        'aws_ca.protocol': 'scep',
+        'aws_ca.ca': ca.label,
+        'event.reason': 'invalid_request',
+        ...errorFields(error, true),
+      });
       return text(400, 'The message is not a valid pkiMessage.');
     }
 
@@ -222,15 +234,23 @@ export class ScepServer {
       return await reply({ certificates: [certificate] }, opened.cipher);
     } catch (error) {
       if (error instanceof ScepError) {
-        this.logger.warn('scep refused', {
-          ca: ca.label,
-          failInfo: FailInfo[error.failInfo],
-          reason: error.message,
+        this.logger.event('issue_certificate', 'denied', 'A SCEP request was refused.', {
+          'aws_ca.protocol': 'scep',
+          'aws_ca.ca': ca.label,
+          'aws_ca.scep.fail_info': FailInfo[error.failInfo],
+          'event.reason': error.reason ?? 'invalid_request',
+          ...errorFields(error, true),
         });
         return reply({ failInfo: error.failInfo });
       }
       if (error instanceof PolicyError || error instanceof CsrError) {
-        this.logger.warn('scep refused', { ca: ca.label, reason: error.message });
+        this.logger.event('issue_certificate', 'denied', 'A SCEP request was refused by policy.', {
+          'aws_ca.protocol': 'scep',
+          'aws_ca.ca': ca.label,
+          'aws_ca.scep.fail_info': FailInfo[FailInfo.badRequest],
+          'event.reason': 'policy_refused',
+          ...errorFields(error, true),
+        });
         return reply({ failInfo: FailInfo.badRequest });
       }
       throw error;
@@ -275,7 +295,7 @@ export class ScepServer {
       const verdict = await this.challengeVerdict(ca, csr.challengePassword, decision.commonName);
       if (verdict !== 'accepted') {
         // The client is told only "bad request"; the log says which kind of wrong it was.
-        throw new ScepError(FailInfo.badRequest, `The challenge password is wrong (${verdict}).`);
+        throw new ScepError(FailInfo.badRequest, 'The challenge password is wrong.', `challenge_${verdict}`);
       }
     } else {
       // Renewal: signed with a certificate this CA issued, which stands in for the challenge.
@@ -302,12 +322,13 @@ export class ScepServer {
       owner: `scep:${decision.commonName}`,
       ...(baseUrl === undefined ? {} : { baseUrl }),
     });
-    this.logger.info('issued', {
-      protocol: 'scep',
-      ca: ca.label,
-      subject: decision.subject,
-      serial: serialNumber,
-      renewal: signer.subject !== signer.issuer,
+    this.logger.event('issue_certificate', 'success', 'Certificate issued.', {
+      'aws_ca.protocol': 'scep',
+      'aws_ca.ca': ca.label,
+      'aws_ca.profile': 'client',
+      'aws_ca.renewal': signer.subject !== signer.issuer,
+      'x509.serial_number': serialNumber,
+      'x509.subject.distinguished_name': decision.subject,
     });
     return certificate;
   }

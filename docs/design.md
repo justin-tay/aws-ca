@@ -390,6 +390,9 @@ Runtime is Node 24 on arm64.
 
 ## Operational requirements
 
+- **Logs are ECS records from a closed catalogue** of events and fields (`src/log.ts`,
+  documented with its ECS conformance in [logging.md](logging.md)); a field that is
+  not on the list is dropped, so a header, body or key cannot be written.
 - **Never log raw events or headers.** `main`'s `handler.ts` does
   `console.log(event)`, which writes the `Authorization: Basic ...` header
   (the user's password) to CloudWatch.

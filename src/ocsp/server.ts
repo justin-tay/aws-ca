@@ -2,7 +2,7 @@ import { X509Certificate } from '@peculiar/x509';
 import type { Signer } from '../ca';
 import type { ResolvedConfig } from '../config';
 import { text, type HttpRequest, type HttpResponse } from '../http';
-import { silentLogger, type Logger } from '../log';
+import { errorFields, silentLogger, type Logger } from '../log';
 import type { KeyStoreProvider } from '../keystore';
 import type { OperationalKeyService } from '../operational';
 import type { CaRecord, CaRepository } from '../repo';
@@ -99,7 +99,10 @@ export class OcspServer {
       }
       return await this.answer(target.caLabel, der, request.method === 'GET');
     } catch (error) {
-      this.logger.error('ocsp failed', { error });
+      this.logger.event('process_request', 'error', 'An OCSP request failed unexpectedly.', {
+        'aws_ca.protocol': 'ocsp',
+        ...errorFields(error),
+      });
       return this.error(OCSPResponseStatus.internalError);
     }
   }
@@ -155,7 +158,16 @@ export class OcspServer {
     const delegated = await this.signingFor(ca);
     if (!delegated && this.deps.config.ocsp.signing !== 'ca') {
       // Nothing to sign with yet (the first rotation has not run): ask the client to come back.
-      this.logger.error('no operational certificate for ocsp', { ca: caLabel });
+      this.logger.event(
+        'process_request',
+        'error',
+        'No operational certificate to sign OCSP responses with.',
+        {
+          'aws_ca.protocol': 'ocsp',
+          'aws_ca.ca': caLabel,
+          'event.reason': 'not_ready',
+        },
+      );
       return this.error(OCSPResponseStatus.tryLater);
     }
     const signing: Signing = delegated ?? {

@@ -3,7 +3,7 @@ import { X509Certificate } from '@peculiar/x509';
 import { authErrorResponse, authenticateRequest, isResponse, type Authenticator } from '../auth';
 import type { ResolvedConfig } from '../config';
 import { text, type HttpRequest, type HttpResponse } from '../http';
-import { silentLogger, type Logger } from '../log';
+import { errorFields, silentLogger, type Logger } from '../log';
 import { RepositoryError, type CaRepository } from '../repo';
 import type { DynamicChallenges } from './dynamic';
 
@@ -103,7 +103,11 @@ export class ScepChallengeServer {
         return user;
       }
       if (!user.groups.includes(config.groups.scep) && !user.groups.includes(config.groups.admin)) {
-        this.logger.warn('scep challenge refused', { username: user.username, ca: caLabel });
+        this.logger.event('issue_scep_challenge', 'denied', 'The user may not request SCEP challenges.', {
+          'aws_ca.ca': caLabel,
+          'user.name': user.username,
+          'event.reason': 'not_allowed',
+        });
         return text(403, 'Not allowed to request SCEP challenges.');
       }
       return route.kind === 'page'
@@ -115,13 +119,19 @@ export class ScepChallengeServer {
         return authFailure;
       }
       if (error instanceof RepositoryError && error.code === 'limit-reached') {
-        this.logger.warn('scep challenge limit reached', { ca: route.caLabel });
+        this.logger.event('issue_scep_challenge', 'denied', 'Too many SCEP challenges are outstanding.', {
+          'aws_ca.ca': route.caLabel,
+          'event.reason': 'limit_reached',
+        });
         return text(429, 'Too many SCEP challenges are outstanding; wait for one to be used or to expire.', {
           'retry-after': '60',
           ...NO_STORE,
         });
       }
-      this.logger.error('scep challenge failed', { error });
+      this.logger.event('process_request', 'error', 'A request failed unexpectedly.', {
+        'aws_ca.protocol': 'scep',
+        ...errorFields(error),
+      });
       return text(500, 'Internal error.');
     }
   }
@@ -138,7 +148,12 @@ export class ScepChallengeServer {
       return text(404, 'There is no such CA.');
     }
     const { challenge } = await this.deps.challenges.issue(caLabel, { createdBy: username });
-    this.logger.info('scep challenge issued', { ca: caLabel, username, via: 'mscep_admin' });
+    this.logger.event('issue_scep_challenge', 'success', 'A SCEP challenge was issued.', {
+      'aws_ca.ca': caLabel,
+      'user.name': username,
+      'aws_ca.challenge.via': 'mscep_admin',
+      'aws_ca.challenge.bound': false,
+    });
     return {
       status: 200,
       // As Windows Server 2025 serves it (checked: Content-Type text/html without a charset, a UTF-16LE
@@ -191,11 +206,11 @@ export class ScepChallengeServer {
       createdBy: username,
       ...(commonName === undefined ? {} : { commonName }),
     });
-    this.logger.info('scep challenge issued', {
-      ca: caLabel,
-      username,
-      via: 'api',
-      bound: commonName !== undefined,
+    this.logger.event('issue_scep_challenge', 'success', 'A SCEP challenge was issued.', {
+      'aws_ca.ca': caLabel,
+      'user.name': username,
+      'aws_ca.challenge.via': 'api',
+      'aws_ca.challenge.bound': commonName !== undefined,
     });
     return {
       status: 201,

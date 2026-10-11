@@ -99,9 +99,8 @@ async function setup(input: AwsCaConfigInput = {}, challenges: 'static' | 'dynam
     ...(challenges === 'dynamic' ? {} : { challenge }),
     ...(challenges === 'static' ? {} : { dynamicChallenges }),
     logger: {
-      info: (m, f) => logs.push(`${m} ${JSON.stringify(f)}`),
-      warn: (m, f) => logs.push(`${m} ${JSON.stringify(f)}`),
-      error: (m, f) => logs.push(`${m} ${JSON.stringify(f)}`),
+      event: (action, result, message, fields) =>
+        logs.push(`${action} ${result} ${message} ${JSON.stringify(fields)}`),
     },
   });
   return { config, repository, server, operational, logs, dynamicChallenges };

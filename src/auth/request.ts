@@ -21,7 +21,10 @@ export async function authenticateRequest(
   }
   const user = await authenticator.authenticate(credentials.username, credentials.password);
   if (!user) {
-    logger.warn('authentication failed', { username: credentials.username.slice(0, 64) });
+    logger.event('login', 'denied', 'Authentication failed.', {
+      'user.name': credentials.username.slice(0, 64),
+      'event.reason': 'unauthenticated',
+    });
     return challenge();
   }
   return user;
@@ -35,7 +38,9 @@ export function authErrorResponse(error: unknown, logger: Logger): HttpResponse 
   if (!(error instanceof AuthError)) {
     return undefined;
   }
-  logger.warn('authentication unavailable', { code: error.code });
+  logger.event('login', 'error', 'Authentication could not be decided.', {
+    'event.reason': error.code === 'rate-limited' ? 'rate_limited' : 'unavailable',
+  });
   return error.code === 'rate-limited'
     ? text(429, 'Too many requests.', { 'retry-after': '1' })
     : text(503, 'Authentication is unavailable.');

@@ -1,7 +1,6 @@
 import type { APIGatewayProxyEventV2 } from 'aws-lambda';
 import { toRequest, toResult } from '../../src/handlers/api';
 import { originIsVerified, text } from '../../src/http';
-import { createLogger, redact } from '../../src/log';
 
 describe('originIsVerified', () => {
   it('passes everything when no secret is expected', () => {
@@ -47,33 +46,6 @@ describe('the Function URL adapter', () => {
       headers: { 'content-type': 'text/plain; charset=utf-8', 'www-authenticate': 'Basic' },
       body: 'no',
     });
-  });
-});
-
-describe('the logger', () => {
-  it('redacts credentials and key material at any depth, and keeps the rest', () => {
-    const lines: string[] = [];
-    createLogger((line) => lines.push(line)).info('request', {
-      username: 'alice',
-      headers: { Authorization: 'Basic c2VjcmV0', 'content-type': 'application/pkcs10' },
-      nested: [{ privateKey: '-----BEGIN PRIVATE KEY-----', serial: 'ab' }],
-      body: 'MIIB',
-    });
-    const line = lines[0];
-    expect(line).not.toContain('c2VjcmV0');
-    expect(line).not.toContain('PRIVATE KEY');
-    expect(line).not.toContain('MIIB');
-    expect(JSON.parse(line)).toMatchObject({
-      level: 'info',
-      message: 'request',
-      username: 'alice',
-      headers: { Authorization: '[redacted]', 'content-type': 'application/pkcs10' },
-      nested: [{ privateKey: '[redacted]', serial: 'ab' }],
-    });
-  });
-
-  it('logs an error as its name and message only', () => {
-    expect(redact({ error: new Error('boom') })).toEqual({ error: { name: 'Error', message: 'boom' } });
   });
 });
 

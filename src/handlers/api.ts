@@ -20,7 +20,7 @@ import { OcspServer } from '../ocsp';
 import { CertificateIssuer } from '../issuance';
 import { OperationalKeyService } from '../operational';
 import { DynamicChallenges, ScepChallengeServer, ScepServer, SsmChallenge, scepChallengeName } from '../scep';
-import { createLogger } from '../log';
+import { createLogger, errorFields, withLogContext, type Logger } from '../log';
 import { RevocationServer } from '../revocation';
 import { DynamoCaRepository, createDocumentClient } from '../repo';
 
@@ -108,6 +108,8 @@ interface Runtime {
   publicUrls?: SsmPublicUrls;
   /** Resolved once; `undefined` means this front door adds no origin secret. */
   originSecret: () => Promise<string | undefined>;
+  logger: Logger;
+  clientDetails: boolean;
 }
 
 function required(name: string): string {
@@ -180,6 +182,8 @@ function createRuntime(): Runtime {
     scep,
     scepChallenge,
     crl,
+    logger,
+    clientDetails: config.logging.clientDetails,
     ...(process.env.PUBLIC_URLS_PARAMETER
       ? { publicUrls: new SsmPublicUrls(ssm, process.env.PUBLIC_URLS_PARAMETER) }
       : {}),
@@ -217,25 +221,67 @@ export const handler = async (
   if (isScheduled(event)) {
     // The daily refresh: a CRL must never run out unnoticed.
     const summary = await runtime.crl.refreshAll(runtime.issuingLabels);
-    console.log(
-      JSON.stringify({
-        message: 'crl refresh',
-        refreshed: summary.refreshed.length,
-        failed: summary.failed,
-      }),
-    );
     if (summary.failed.length > 0) {
       throw new Error(`CRL refresh failed for ${summary.failed.map((f) => f.caLabel).join(', ')}`);
     }
     return undefined;
   }
+  return serve(runtime, event);
+};
+
+/** What is logged of a path: an OCSP GET carries the whole request in it, which is not. */
+const loggablePath = (path: string): string => /^\/ocsp\/[a-z0-9-]+/.exec(path)?.[0] ?? path;
+
+const resultOf = (status: number): 'success' | 'denied' | 'error' =>
+  status >= 500 ? 'error' : status >= 400 ? 'denied' : 'success';
+
+/** One request: every record written while it is served carries its id, and one access record ends it. */
+async function serve(
+  current: Runtime,
+  event: ApiEvent,
+): Promise<APIGatewayProxyStructuredResultV2 | undefined> {
+  const started = process.hrtime.bigint();
   const request = toRequest(event);
+  const rest = isRest(event);
+  const requestId = event.requestContext.requestId;
+  const sourceIp = rest
+    ? event.requestContext.identity?.sourceIp
+    : (event.requestContext as { http?: { sourceIp?: string } }).http?.sourceIp;
+  return withLogContext({ 'http.request.id': requestId }, async () => {
+    let result: APIGatewayProxyStructuredResultV2;
+    try {
+      result = await handle(current, request);
+    } catch (error) {
+      current.logger.event('serve_request', 'error', 'Request failed.', {
+        'http.request.method': request.method,
+        'url.path': loggablePath(request.path),
+        'event.duration': Number(process.hrtime.bigint() - started),
+        ...errorFields(error),
+      });
+      throw error;
+    }
+    const status = result?.statusCode ?? 500;
+    current.logger.event('serve_request', resultOf(status), 'Request served.', {
+      'http.request.method': request.method,
+      'url.path': loggablePath(request.path),
+      'http.response.status_code': status,
+      'http.response.body.bytes': Buffer.byteLength(result?.body ?? ''),
+      'event.duration': Number(process.hrtime.bigint() - started),
+      ...(current.clientDetails
+        ? { 'source.ip': sourceIp, 'user_agent.original': request.headers['user-agent'] }
+        : {}),
+    });
+    return result;
+  });
+}
+
+async function handle(services: Runtime, request: HttpRequest): Promise<APIGatewayProxyStructuredResultV2> {
   // First, before anything in the request is believed: see `originIsVerified`.
-  if (!originIsVerified(request.headers, await runtime.originSecret())) {
+  if (!originIsVerified(request.headers, await services.originSecret())) {
     return toResult(text(403, 'Forbidden.'));
   }
   // Behind CloudFront the Lambda sees its own Function URL; the addresses clients use were published.
-  const urls = await runtime.publicUrls?.get();
+  const urls = await services.publicUrls?.get();
   if (urls) {
     request.baseUrl = urls.base;
     if (urls.revocation) {
@@ -253,9 +299,9 @@ export const handler = async (
     request.viewerCertificatePem = decodeURIComponent(viewerCertificate);
   }
   const routed =
-    (await runtime.revocation.handle(request)) ??
-    (await runtime.ocsp.handle(request)) ??
-    (await runtime.scepChallenge.handle(request)) ??
-    (await runtime.scep.handle(request));
-  return toResult(routed ?? (await runtime.server.handle(request)));
-};
+    (await services.revocation.handle(request)) ??
+    (await services.ocsp.handle(request)) ??
+    (await services.scepChallenge.handle(request)) ??
+    (await services.scep.handle(request));
+  return toResult(routed ?? (await services.server.handle(request)));
+}

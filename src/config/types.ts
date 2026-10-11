@@ -99,6 +99,11 @@ export interface AwsCaConfigInput {
   ocsp?: { enabled?: boolean; signing?: OcspSigning; maxAgeSeconds?: number; nextUpdateHours?: number };
   crl?: { nextUpdateDays?: number };
   lifetimes?: { clientDays?: number; serverDays?: number };
+  /**
+   * What the request log carries. `clientDetails` (default true) adds the caller's address and
+   * user agent, which are personal data in some regimes.
+   */
+  logging?: { clientDetails?: boolean };
   /** How long a certificate record is kept after it expires, before DynamoDB removes it. Default 90. */
   retention?: { afterExpiryDays?: number };
   policy?: { allowedDomainSuffixes?: string[]; subjectTemplate?: string };
@@ -166,6 +171,7 @@ export interface ResolvedConfig {
   crl: { nextUpdateDays: number };
   lifetimes: { clientDays: number; serverDays: number };
   retention: { afterExpiryDays: number };
+  logging: { clientDetails: boolean };
   policy: { allowedDomainSuffixes: string[]; subjectTemplate: string };
   groups: { client: string; server: string; admin: string; scep: string };
   auth: { cognitoTier: CognitoTier };

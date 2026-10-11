@@ -3,7 +3,7 @@ import { RevocationReason, canonicalSerial } from '../ca';
 import type { ResolvedConfig } from '../config';
 import type { CrlService, CrlStore } from '../crl';
 import { text, type HttpRequest, type HttpResponse } from '../http';
-import { silentLogger, type Logger } from '../log';
+import { errorFields, silentLogger, type Logger } from '../log';
 import { RepositoryError, type CaRepository } from '../repo';
 
 /** The reasons a caller may give. `certificateHold` and `removeFromCRL` would make revocation undoable. */
@@ -75,7 +75,10 @@ export class RevocationServer {
       if (authFailure) {
         return authFailure;
       }
-      this.logger.error('unhandled error', { error });
+      this.logger.event('process_request', 'error', 'A request failed unexpectedly.', {
+        'aws_ca.protocol': 'revocation',
+        ...errorFields(error),
+      });
       return text(500, 'Internal error.');
     }
   }
@@ -133,7 +136,17 @@ export class RevocationServer {
     const isAdmin = user.groups.includes(this.deps.config.groups.admin);
     // Not found and not yours look the same, so a caller cannot probe for other people's serials.
     if (!certificate || (certificate.owner !== user.username && !isAdmin)) {
-      this.logger.warn('revocation refused', { username: user.username, ca: caLabel, serial });
+      this.logger.event(
+        'revoke_certificate',
+        'denied',
+        'Revocation refused: no such certificate for this user.',
+        {
+          'aws_ca.ca': caLabel,
+          'user.name': user.username,
+          'x509.serial_number': serial,
+          'event.reason': 'not_found',
+        },
+      );
       return text(404, 'There is no such certificate.');
     }
 
@@ -145,16 +158,22 @@ export class RevocationServer {
       });
     } catch (error) {
       if (error instanceof RepositoryError && error.code === 'already-revoked') {
+        this.logger.event('revoke_certificate', 'denied', 'The certificate was already revoked.', {
+          'aws_ca.ca': caLabel,
+          'user.name': user.username,
+          'x509.serial_number': certificate.serialNumber,
+          'event.reason': 'already_revoked',
+        });
         return text(409, 'The certificate is already revoked.');
       }
       throw error;
     }
-    this.logger.info('revoked', {
-      username: user.username,
-      ca: caLabel,
-      serial: revoked.serialNumber,
-      reason: reasonName,
-      admin: isAdmin && certificate.owner !== user.username,
+    this.logger.event('revoke_certificate', 'success', 'Certificate revoked.', {
+      'aws_ca.ca': caLabel,
+      'user.name': user.username,
+      'user.target.name': certificate.owner,
+      'x509.serial_number': revoked.serialNumber,
+      'aws_ca.revocation.reason': reasonName,
     });
 
     // The certificate is revoked for good at this point; the CRL follows. If it cannot be built now
@@ -169,7 +188,11 @@ export class RevocationServer {
         crlPublished: true,
       });
     } catch (error) {
-      this.logger.error('crl refresh failed after revocation', { ca: caLabel, error });
+      this.logger.event('refresh_crl', 'error', 'The CRL could not be refreshed after a revocation.', {
+        'aws_ca.ca': caLabel,
+        'event.reason': 'crl_pending',
+        ...errorFields(error),
+      });
       return json(202, {
         serialNumber: revoked.serialNumber,
         revokedAt: revoked.revokedAt?.toISOString(),

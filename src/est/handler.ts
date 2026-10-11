@@ -11,7 +11,7 @@ import type { ResolvedConfig } from '../config';
 import { CertificateIssuer } from '../issuance';
 import { text, type HttpRequest, type HttpResponse } from '../http';
 import type { KeyStoreProvider } from '../keystore';
-import { silentLogger, type Logger } from '../log';
+import { errorFields, silentLogger, type Logger } from '../log';
 import { PolicyError, decideIssuance } from '../policy';
 import type { CaRecord, CaRepository } from '../repo';
 import { certsOnlyBase64 } from './pkcs7';
@@ -111,7 +111,10 @@ export class EstServer {
       if (authFailure) {
         return authFailure;
       }
-      this.logger.error('unhandled error', { error });
+      this.logger.event('process_request', 'error', 'A request failed unexpectedly.', {
+        'aws_ca.protocol': 'est',
+        ...errorFields(error),
+      });
       return text(500, 'Internal error.');
     }
   }
@@ -156,7 +159,17 @@ export class EstServer {
     // An AuthError (throttled, unavailable) is not caught: it must not read as "refused".
     const current = await this.deps.authenticator.lookup(record.owner);
     if (!current || !current.groups.includes(this.deps.config.groups[record.profile])) {
-      this.logger.warn('renewal by certificate refused', { username: record.owner, reason: 'user' });
+      this.logger.event(
+        'issue_certificate',
+        'denied',
+        'Renewal by certificate refused: the user is not allowed.',
+        {
+          'aws_ca.protocol': 'est',
+          'aws_ca.ca': ca.label,
+          'user.name': record.owner,
+          'event.reason': 'user_not_allowed',
+        },
+      );
       return undefined;
     }
     return current;
@@ -217,12 +230,14 @@ export class EstServer {
         ...(request.baseUrl === undefined ? {} : { baseUrl: request.baseUrl }),
         ...(request.revocationBaseUrl === undefined ? {} : { revocationBaseUrl: request.revocationBaseUrl }),
       });
-      this.logger.info('issued', {
-        username: user.username,
-        ca: ca.label,
-        profile: decision.profile,
-        serial,
-        renewal,
+      this.logger.event('issue_certificate', 'success', 'Certificate issued.', {
+        'aws_ca.protocol': 'est',
+        'aws_ca.ca': ca.label,
+        'aws_ca.profile': decision.profile,
+        'aws_ca.renewal': renewal,
+        'user.name': user.username,
+        'x509.serial_number': serial,
+        'x509.subject.distinguished_name': decision.subject,
       });
       // The leaf and its issuing CA: what a client needs to bind the certificate (design spike 2).
       return pkcs7([certificate, issuer]);
@@ -231,7 +246,13 @@ export class EstServer {
         return text(400, error.message);
       }
       if (error instanceof PolicyError) {
-        this.logger.warn('refused', { username: user.username, ca: ca.label, reason: error.message });
+        this.logger.event('issue_certificate', 'denied', 'Issuance refused by policy.', {
+          'aws_ca.protocol': 'est',
+          'aws_ca.ca': ca.label,
+          'user.name': user.username,
+          'event.reason': 'policy_refused',
+          ...errorFields(error, true),
+        });
         return text(403, error.message);
       }
       throw error;

@@ -2,7 +2,7 @@ import { X509Certificate } from '@peculiar/x509';
 import { buildCrl, type RevokedEntry, type Signer } from '../ca';
 import type { ResolvedConfig } from '../config';
 import type { KeyStoreProvider } from '../keystore';
-import { silentLogger, type Logger } from '../log';
+import { errorFields, silentLogger, type Logger } from '../log';
 import type { CaRepository, CertificateRecord } from '../repo';
 import type { CrlStore } from './store';
 
@@ -133,9 +133,24 @@ export class CrlService {
       if (latest === undefined || latest <= crlNumber) {
         break;
       }
-      this.logger.warn('crl superseded while writing', { ca: caLabel, crlNumber, latest });
+      this.logger.event(
+        'refresh_crl',
+        'success',
+        'A newer CRL was published while this one was written; building again.',
+        {
+          'aws_ca.ca': caLabel,
+          'aws_ca.crl.number': crlNumber,
+        },
+      );
     }
-    return result as CrlRefreshResult;
+    const done = result as CrlRefreshResult;
+    this.logger.event('refresh_crl', 'success', 'A CRL was published.', {
+      'aws_ca.ca': caLabel,
+      'aws_ca.crl.number': done.crlNumber,
+      'aws_ca.crl.entries': done.entries,
+      'aws_ca.crl.published': done.published,
+    });
+    return done;
   }
 
   /** Refreshes each CA, reporting failures rather than stopping at the first. */
@@ -150,7 +165,10 @@ export class CrlService {
         refreshed.push(await this.refresh(label));
       } catch (error) {
         failed.push({ caLabel: label, message: (error as Error).message });
-        this.logger.error('crl refresh failed', { ca: label, error });
+        this.logger.event('refresh_crl', 'error', 'A CRL could not be refreshed.', {
+          'aws_ca.ca': label,
+          ...errorFields(error),
+        });
       }
     }
     return { refreshed, failed };

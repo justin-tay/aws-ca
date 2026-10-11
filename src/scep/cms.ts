@@ -9,6 +9,7 @@ import {
   verify,
 } from 'node:crypto';
 import { AsnConvert, OctetString } from '@peculiar/asn1-schema';
+import type { EventReason } from '../log';
 import {
   Attribute,
   CMSVersion,
@@ -124,6 +125,8 @@ export class ScepError extends Error {
   constructor(
     readonly failInfo: FailInfo,
     message: string,
+    /** Why, for the log; the client sees only the failInfo. */
+    readonly reason?: EventReason,
   ) {
     super(message);
     this.name = 'ScepError';

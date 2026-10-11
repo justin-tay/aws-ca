@@ -596,6 +596,7 @@ export function resolveConfig(input: AwsCaConfigInput = {}): ResolvedConfig {
     'crl',
     'lifetimes',
     'retention',
+    'logging',
     'policy',
     'groups',
     'auth',
@@ -701,6 +702,9 @@ export function resolveConfig(input: AwsCaConfigInput = {}): ResolvedConfig {
     afterExpiryDays: integer(c, retentionRec.afterExpiryDays, 'retention.afterExpiryDays', 0, 3650, 90),
   };
 
+  const loggingRec = section(c, top.logging, 'logging', ['clientDetails']);
+  const logging = { clientDetails: flag(c, loggingRec.clientDetails, 'logging.clientDetails', true) };
+
   const policyRec = section(c, top.policy, 'policy', ['allowedDomainSuffixes', 'subjectTemplate']);
   const allowedDomainSuffixes = resolveSuffixes(
     c,
@@ -743,6 +747,7 @@ export function resolveConfig(input: AwsCaConfigInput = {}): ResolvedConfig {
     crl,
     lifetimes,
     retention,
+    logging,
     policy: { allowedDomainSuffixes, subjectTemplate },
     groups,
     auth,

@@ -165,7 +165,17 @@ export class OperationalKeyService {
       // Our key is of no use whatever the reason; do not leave it behind.
       await store.deleteKey(created.keyRef).catch(() => undefined);
       if (error instanceof RepositoryError && error.code === 'already-exists') {
-        this.logger.info('operational key created concurrently', { ca: caLabel, purpose, sequence });
+        this.logger.event(
+          'rotate_operational_key',
+          'success',
+          'The operational key was created concurrently.',
+          {
+            'aws_ca.ca': caLabel,
+            'aws_ca.operational_key.purpose': purpose,
+            'aws_ca.operational_key.sequence': sequence,
+            'aws_ca.operational_key.rotated': false,
+          },
+        );
         return { caLabel, purpose, action: 'raced', sequence, notAfter };
       }
       throw error;
@@ -175,11 +185,11 @@ export class OperationalKeyService {
       // oxlint-disable-next-line no-await-in-loop
       await repository.setOperationalCertificateActive(label, previous.sequence, false);
     }
-    this.logger.info('operational key issued', {
-      ca: caLabel,
-      purpose,
-      sequence,
-      rotated: current !== undefined,
+    this.logger.event('rotate_operational_key', 'success', 'An operational key was issued.', {
+      'aws_ca.ca': caLabel,
+      'aws_ca.operational_key.purpose': purpose,
+      'aws_ca.operational_key.sequence': sequence,
+      'aws_ca.operational_key.rotated': current !== undefined,
     });
     return {
       caLabel,

@@ -10,7 +10,8 @@ It is an application, not a library: you configure it, deploy it, and enrol
 devices against the URLs it prints.
 
 > The design and the reasoning behind it are in [docs/design.md](docs/design.md);
-> day-two procedures are in [docs/operations.md](docs/operations.md). The
+> day-two procedures are in [docs/operations.md](docs/operations.md); the log
+> schema (ECS) is in [docs/logging.md](docs/logging.md). The
 > previous implementation is kept on another branch (it was `main` before this one
 > replaced it) and is not migrated.
 
@@ -180,8 +181,9 @@ thousands of requests). Prices are approximate; check the AWS pricing pages.
   explicit deny for it. With `rootCa.keyHandling: 'offline'` the root key is handed
   over once and removed from the store.
 - **No secrets in the template or environment.** Keys, the encryption secret and
-  the SCEP challenge are SSM SecureStrings, and logs are redacted by field name
-  (authorization, passwords, tokens, keys, CSRs and PEM). The one exception is the
+  the SCEP challenge are SSM SecureStrings, and logs are ECS records
+  written only from a fixed list of fields, so authorization headers, passwords,
+  keys, CSRs and PEM cannot reach them ([docs/logging.md](docs/logging.md)). The one exception is the
   CloudFront origin secret: it also has to be written into the distribution's
   origin header, so it is visible to anyone who can read that distribution's
   configuration, and it passes through the bootstrap custom resource's response.

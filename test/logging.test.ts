@@ -93,9 +93,13 @@ describe('what the services log', () => {
       expect(everything).not.toContain(secret);
     }
     // What it should say is there, and parseable: one JSON object per line.
-    const parsed = lines.map((line) => JSON.parse(line) as { message: string });
-    expect(parsed.map((entry) => entry.message)).toEqual(
-      expect.arrayContaining(['authentication failed', 'issued', 'revoked']),
+    const parsed = lines.map(
+      (line) =>
+        JSON.parse(line) as { 'event.action': string; 'event.outcome': string; 'ecs.version': string },
+    );
+    expect(parsed.every((entry) => entry['ecs.version'] === '8.11.0')).toBe(true);
+    expect(parsed.map((entry) => `${entry['event.action']}:${entry['event.outcome']}`)).toEqual(
+      expect.arrayContaining(['login:failure', 'issue_certificate:success', 'revoke_certificate:success']),
     );
     expect(X509Certificate).toBeDefined();
   });

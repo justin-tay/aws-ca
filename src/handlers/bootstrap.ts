@@ -36,6 +36,8 @@ export interface BootstrapResponse {
 
 const PHYSICAL_ID = 'aws-ca-bootstrap';
 
+const logger = createLogger();
+
 /** How long to keep retrying while a just-changed IAM policy propagates. */
 const PROPAGATION_WINDOW_MS = 150_000;
 const PROPAGATION_DELAY_MS = 5_000;
@@ -67,9 +69,9 @@ export async function withIamPropagationRetry<T>(
       if (!isAccessDenied(error) || waited + delayMs > windowMs) {
         throw error;
       }
-      console.warn(
-        JSON.stringify({ message: 'access denied, waiting for IAM to propagate', waitedMs: waited }),
-      );
+      logger.event('wait_for_permissions', 'success', 'Access denied; waiting for IAM to propagate.', {
+        'event.duration': waited * 1_000_000,
+      });
       // oxlint-disable-next-line no-await-in-loop
       await sleep(delayMs);
       waited += delayMs;
@@ -142,7 +144,6 @@ async function scheduledMaintenance(): Promise<void> {
       ? { customerManagedKeyArn: process.env.CUSTOMER_MANAGED_KEY_ARN }
       : {}),
   });
-  const logger = createLogger();
   // Rotation first: the CRL run below is the one that fails the schedule loudly.
   const outcomes = await new OperationalKeyService({
     config: scheduledConfig,
@@ -150,7 +151,9 @@ async function scheduledMaintenance(): Promise<void> {
     keyStores,
     logger,
   }).ensureAll();
-  console.log(JSON.stringify({ message: 'operational keys', outcomes }));
+  logger.event('ensure_operational_keys', 'success', 'Operational keys checked.', {
+    'aws_ca.operational_key.count': outcomes.length,
+  });
   const crl = new CrlService({
     config: scheduledConfig,
     repository,
@@ -211,9 +214,12 @@ export const handler = async (
           await store.remove(label);
         }
       }
-      console.info(JSON.stringify({ message: 'removed CA keys', removed, delegatedRemoved }));
+      logger.event('remove_ca_keys', 'success', 'CA keys removed.', {
+        'aws_ca.removed.keys': removed.length,
+        'aws_ca.removed.delegated_keys': delegatedRemoved,
+      });
     } else {
-      console.info(JSON.stringify({ message: 'kept CA keys', reason: 'removalPolicy is retain' }));
+      logger.event('keep_ca_keys', 'success', 'CA keys kept: removalPolicy is retain.');
     }
     return { PhysicalResourceId: PHYSICAL_ID };
   }
@@ -237,13 +243,11 @@ export const handler = async (
     }),
   );
 
-  console.info(
-    JSON.stringify({
-      message: 'bootstrapped',
-      cas: result.cas.map((ca) => ({ label: ca.label, created: ca.created })),
-      rootKeyExported: result.rootKeyExported,
-    }),
-  );
+  logger.event('provision_cas', 'success', 'CAs provisioned.', {
+    'aws_ca.provisioned.cas': result.cas.length,
+    'aws_ca.provisioned.created': result.cas.filter((ca) => ca.created).length,
+    'aws_ca.root_key.exported': result.rootKeyExported,
+  });
   // The shared SCEP challenge, generated once; an operator reads it from here to enroll devices.
   if (config.scep.enabled && config.scep.challenge !== 'dynamic') {
     await ensureScepChallenge(ssm, scepChallengeName(config.namePrefix));
@@ -254,9 +258,11 @@ export const handler = async (
     config,
     repository,
     keyStores,
-    logger: createLogger(),
+    logger,
   }).ensureAll();
-  console.info(JSON.stringify({ message: 'operational keys', outcomes: operational }));
+  logger.event('ensure_operational_keys', 'success', 'Operational keys checked.', {
+    'aws_ca.operational_key.count': operational.length,
+  });
 
   // A first CRL for every CA, so the CRL URLs work as soon as the stack does.
   const bucket = process.env.CRL_BUCKET;
@@ -266,7 +272,7 @@ export const handler = async (
       repository,
       keyStores,
       store: new S3CrlStore({ client: new S3Client({}), bucket }),
-      logger: createLogger(),
+      logger,
     });
     const summary = await crl.refreshAll(
       maintainedCrlLabels(
@@ -294,7 +300,11 @@ export const handler = async (
     frontDoor.OriginVerifySecret = rotate
       ? await rotateOriginSecret(ssm, name)
       : await ensureOriginSecret(ssm, name);
-    console.info(JSON.stringify({ message: rotate ? 'origin secret rotated' : 'origin secret ensured' }));
+    logger.event(
+      rotate ? 'rotate_origin_secret' : 'ensure_origin_secret',
+      'success',
+      rotate ? 'The origin secret was rotated.' : 'The origin secret is in place.',
+    );
   }
   {
     if (config.frontDoor.type !== 'function-url' && config.frontDoor.mtls && bucket !== undefined) {

@@ -123,8 +123,9 @@ certificate is refused (401) however the trust store judged it.
 | 429 from the SCEP challenge page or endpoint        | `scep.dynamicChallenge.maxOutstanding` unexpired challenges exist for the CA; they expire after `validityMinutes`.                                                                                                                       |
 | A revocation did not show in the CRL                | The index lags by milliseconds; the next revocation or the daily refresh includes it.                                                                                                                                                    |
 
-Logs are structured JSON, one object per line, and are redacted by field name:
+Logs are ECS JSON, one object per line, written only from a fixed list of fields:
 authorization headers, passwords, tokens, keys, CSRs and PEM never reach them.
+The schema, events and example queries are in [logging.md](logging.md).
 
 ## Destroying a deployment
 
