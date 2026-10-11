@@ -94,7 +94,7 @@ Authenticated with the challenge, or by signing a renewal with the certificate b
 
 The default front door is CloudFront, which can serve the CRL and OCSP over HTTP. The other front
 doors (`function-url`, `http-api` and `rest-api`) only serve HTTPS, so the OCSP responder is a HTTPS
-uri. See [docs/design.md](docs/design.md) for what each front door costs and supports.
+uri. See [ADR 0009](docs/adr/0009-configurable-front-door-and-viewer-mtls.md) for what each front door costs and supports.
 
 ## Configuration
 
@@ -347,4 +347,5 @@ openssl ocsp -issuer issuing.pem -cert client.pem -url "http://xyz.cloudfront.ne
 - [docs/operations.md](docs/operations.md): rotating secrets, adding CAs, users and troubleshooting
 - [docs/windows-enrollment.md](docs/windows-enrollment.md): enrolling from Windows with its own clients
 - [docs/logging.md](docs/logging.md): the ECS log schema and example queries
-- [docs/design.md](docs/design.md): the design and the reasons for it
+- [docs/system-design/](docs/system-design/index.md): the architecture (arc42)
+- [docs/adr/](docs/adr/): the decisions and the reasons for them

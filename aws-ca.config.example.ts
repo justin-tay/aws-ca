@@ -1,5 +1,5 @@
 // Copy to aws-ca.config.ts and adjust. Every option is optional; the values below
-// are the defaults except where noted. See docs/design.md for what each one means.
+// are the defaults except where noted. See the README for what each one means and docs/adr for the reasons.
 import { defineConfig } from './src/config';
 
 export default defineConfig({

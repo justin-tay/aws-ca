@@ -83,7 +83,7 @@ const ACKNOWLEDGED: { id: string; reason: string }[] = [
   {
     id: 'AwsSolutions::AwsSolutions-COG8',
     reason:
-      'The Plus plan adds threat protection this CA does not use; the Lite and Essentials plans are the cost-conscious choice (design.md section 8).',
+      'The Plus plan adds threat protection this CA does not use; the Lite and Essentials plans are the cost-conscious choice (docs/adr/0011).',
   },
   {
     id: 'AwsSolutions::AwsSolutions-IAM5[Resource::<TableCD117FA1.Arn>/index/*]',

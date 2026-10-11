@@ -50,7 +50,7 @@ const VIEWER_CERT_HEADERS = [
 ];
 
 /**
- * The `cloudfront` front door (design.md section 7).
+ * The `cloudfront` front door (docs/adr/0009 and 0010).
  *
  * - The origin is the public Function URL plus a secret header, **not** OAC: OAC needs the client
  *   to send `x-amz-content-sha256` on POSTs and overwrites `Authorization`.

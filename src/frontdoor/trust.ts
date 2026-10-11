@@ -26,7 +26,7 @@ export interface TrustBundle {
 /**
  * The CA certificates a CloudFront trust store trusts. A trust store is a snapshot taken when it
  * is created or its source changes, so the key changes with the content and the stack sees an
- * update; the same key would leave an outdated trust store in place (design.md section 7).
+ * update; the same key would leave an outdated trust store in place (docs/adr/0009).
  */
 export function buildTrustBundle(certificatePems: string[]): TrustBundle {
   const pem = certificatePems.map((certificate) => certificate.trim()).join('\n') + '\n';

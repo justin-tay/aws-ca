@@ -39,7 +39,7 @@ function claimsOf(idToken: string): IdTokenClaims {
 
 /**
  * Authenticates with `InitiateAuth` and `USER_PASSWORD_AUTH`. The call is unauthenticated, so the
- * Lambda needs no IAM permission for it; the groups come from the ID token (design.md spike 3).
+ * Lambda needs no IAM permission for it; the groups come from the ID token (docs/adr/0011).
  * `lookup` is the one place that reads the pool with the Lambda's own permissions
  * (`AdminGetUser`, `AdminListGroupsForUser`, read only).
  */

@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { GetParameterCommand, PutParameterCommand, type SSMClient } from '@aws-sdk/client-ssm';
 
-/** The secret CloudFront adds as `x-origin-verify`, and the Lambda requires (design.md section 7). */
+/** The secret CloudFront adds as `x-origin-verify`, and the Lambda requires (docs/adr/0010). */
 export const originVerifyName = (namePrefix: string): string => `${namePrefix}/internal/origin-verify`;
 
 /** Where the deployed URLs are published for the runtime (it cannot learn them from its own environment). */

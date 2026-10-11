@@ -1,6 +1,6 @@
 # aws-ca: domain terms
 
-Terms the code uses consistently. For design rationale see `docs/design.md`.
+Terms the code uses consistently. For design rationale see `docs/adr/` and `docs/system-design/`.
 
 - **Root**: the self-signed CA. It signs only issuing CAs. Its key may be taken offline, after which its CRL is no longer refreshed.
 - **Issuing CA**: a configured subordinate CA (`subordinateCas`, identified by its **label**). It signs end-entity certificates for the profiles it carries (`client`, `server`).

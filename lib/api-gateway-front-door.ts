@@ -31,7 +31,7 @@ export interface ApiGatewayFrontDoorProps {
 const PRIVATE_RANGES = ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'];
 
 /**
- * The `http-api` and `rest-api` front doors (design.md section 7). Both send everything to the one
+ * The `http-api` and `rest-api` front doors (docs/adr/0009). Both send everything to the one
  * Lambda, as a proxy.
  *
  * - There is no origin secret: API Gateway puts the client certificate in the request context, which

@@ -3,7 +3,7 @@ import type { KeyAlgorithm, KeyProtection, ResolvedKeyStore } from '../config';
 
 /**
  * Where a CA key lives. Stored in the CA's record and authoritative: the configured backend only
- * decides where a *new* key goes (design.md section 13). Everything needed to use the key
+ * decides where a *new* key goes (docs/adr/0016). Everything needed to use the key
  * is in here, so the runtime never has to guess which store to look in.
  */
 export type KeyRef =

@@ -1,7 +1,7 @@
 import { canonicalSerial } from '../ca';
 
 /**
- * The single DynamoDB table (design.md section 10). The stack creates it from this description and
+ * The single DynamoDB table (docs/adr/0013). The stack creates it from this description and
  * the integration test does the same, so the code and the table cannot drift apart.
  */
 export const TABLE_SCHEMA = {
