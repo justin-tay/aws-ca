@@ -134,6 +134,14 @@ details on in a form worth logging).
 `denied` and `warn`; only a failure on this side, such as a dependency being
 down, is `error`.
 
+A certificate issued is written once, by the certificate issuer, for every
+protocol and with the same fields, after the certificate is recorded. Over SCEP
+no directory user is involved, so `user.name` is the owner the certificate is
+recorded against, `scep:<common name>`. Refusals are written by the protocol
+that refused, since they happen before issuance. A request that fails
+unexpectedly is one `process_request` record whichever protocol it was; its
+`aws_ca.protocol` says which.
+
 ## Sensitive-data policy
 
 - **Never logged:** passwords, the `Authorization` header, request and response
