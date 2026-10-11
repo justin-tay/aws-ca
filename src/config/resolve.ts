@@ -1,159 +1,38 @@
-import { ConfigError, type ConfigIssue } from './errors';
+import { CA_LABEL } from './label';
+import { ConfigError } from './errors';
 import type {
   AwsCaConfigInput,
-  CognitoTier,
-  DomainInput,
-  EndpointType,
   KeyAlgorithm,
-  KeyBackend,
-  KeyProtection,
-  OcspSigning,
   Profile,
   ResolvedCa,
   ResolvedConfig,
-  ResolvedFrontDoor,
   ResolvedKeyStore,
   ResolvedOperationalKey,
   ResolvedRootCa,
   ResolvedSubordinateCa,
-  RootKeyHandling,
-  RsaModulusLength,
-  ScepChallengeMode,
 } from './types';
-
-type Rec = Record<string, unknown>;
-
-const BACKENDS = ['parameter', 'secret', 'kms'] as const satisfies readonly KeyBackend[];
-const PROTECTIONS = [
-  'aws-managed-key',
-  'app-encrypted',
-  'customer-managed-key',
-] as const satisfies readonly KeyProtection[];
-const CURVES = ['P-256', 'P-384', 'P-521'] as const;
-const MODULUS_LENGTHS = [2048, 3072, 4096] as const satisfies readonly RsaModulusLength[];
-const PROFILES = ['client', 'server'] as const satisfies readonly Profile[];
-const ROOT_KEY_HANDLING = ['retain', 'offline'] as const satisfies readonly RootKeyHandling[];
-const OCSP_SIGNING = ['operational', 'kms', 'ca'] as const satisfies readonly OcspSigning[];
-const COGNITO_TIERS = ['lite', 'essentials'] as const satisfies readonly CognitoTier[];
-const SCEP_CHALLENGES = ['static', 'dynamic', 'both'] as const satisfies readonly ScepChallengeMode[];
-const ENDPOINT_TYPES = ['regional', 'private'] as const satisfies readonly EndpointType[];
-const REMOVAL_POLICIES = ['retain', 'destroy'] as const;
-const FRONT_DOORS = ['function-url', 'cloudfront', 'http-api', 'rest-api'] as const;
-
-const DAYS_PER_YEAR = 365;
-const DN = /^[A-Za-z][A-Za-z0-9.]*=[^,=]+(,\s*[A-Za-z][A-Za-z0-9.]*=[^,=]+)*$/;
-const LABEL = /^[a-z0-9][a-z0-9-]{0,31}$/;
-const HOST_LABEL = '[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?';
-const HOSTNAME = new RegExp(`^${HOST_LABEL}(\\.${HOST_LABEL})*$`);
-const DOMAIN_SUFFIX = new RegExp(`^\\.?${HOST_LABEL}(\\.${HOST_LABEL})*$`);
-const NAME_PREFIX = /^\/[A-Za-z0-9_.-]+(\/[A-Za-z0-9_.-]+)*$/;
-/** SSM rejects parameter names beginning with "aws" or "ssm", with or without the leading slash. */
-const RESERVED_PARAMETER_PREFIX = /^\/?(aws|ssm)/i;
-const KMS_KEY_ARN = /^arn:aws[a-z-]*:kms:[a-z0-9-]+:\d{12}:(key|alias)\/.+$/;
-const ACM_ARN = /^arn:aws[a-z-]*:acm:([a-z0-9-]+):\d{12}:certificate\/.+$/;
-const GROUP_NAME = /^\S{1,128}$/;
-const VPC_ENDPOINT_ID = /^vpce-[0-9a-f]+$/;
-const VPC_ID = /^vpc-[0-9a-f]+$/;
-const SUBNET_ID = /^subnet-[0-9a-f]+$/;
-
-const KMS_OPERATIONAL_KEY =
-  'The operational key cannot be stored in KMS: SCEP clients encrypt to it with RSA PKCS#1 v1.5, ' +
-  'which KMS asymmetric Decrypt does not support. Use "parameter" or "secret".';
-
-class Collector {
-  readonly issues: ConfigIssue[] = [];
-  add(path: string, message: string): void {
-    this.issues.push({ path, message });
-  }
-}
-
-const child = (path: string, key: string): string => (path === '' ? key : `${path}.${key}`);
-
-function isRecord(value: unknown): value is Rec {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-/** An optional section: `undefined` is fine, anything but an object is reported. */
-function section(c: Collector, value: unknown, path: string, allowed: readonly string[]): Rec {
-  if (value === undefined) {
-    return {};
-  }
-  if (!isRecord(value)) {
-    c.add(path, 'Must be an object.');
-    return {};
-  }
-  for (const key of Object.keys(value)) {
-    if (!allowed.includes(key)) {
-      c.add(child(path, key), `Unknown option. Allowed: ${allowed.join(', ')}.`);
-    }
-  }
-  return value;
-}
-
-function pick<T extends string | number>(
-  c: Collector,
-  value: unknown,
-  allowed: readonly T[],
-  path: string,
-  fallback: T,
-): T {
-  if (value === undefined) {
-    return fallback;
-  }
-  const found = allowed.find((option) => option === value);
-  if (found === undefined) {
-    c.add(path, `Must be one of ${allowed.map((option) => JSON.stringify(option)).join(', ')}.`);
-    return fallback;
-  }
-  return found;
-}
-
-function integer(
-  c: Collector,
-  value: unknown,
-  path: string,
-  min: number,
-  max: number,
-  fallback: number,
-): number {
-  if (value === undefined) {
-    return fallback;
-  }
-  if (typeof value !== 'number' || !Number.isInteger(value) || value < min || value > max) {
-    c.add(path, `Must be a whole number from ${min} to ${max}.`);
-    return fallback;
-  }
-  return value;
-}
-
-function flag(c: Collector, value: unknown, path: string, fallback: boolean): boolean {
-  if (value === undefined) {
-    return fallback;
-  }
-  if (typeof value !== 'boolean') {
-    c.add(path, 'Must be true or false.');
-    return fallback;
-  }
-  return value;
-}
-
-function text(
-  c: Collector,
-  value: unknown,
-  path: string,
-  pattern: RegExp,
-  what: string,
-  fallback: string,
-): string {
-  if (value === undefined) {
-    return fallback;
-  }
-  if (typeof value !== 'string' || !pattern.test(value)) {
-    c.add(path, `Must be ${what}.`);
-    return fallback;
-  }
-  return value;
-}
+import {
+  BACKENDS,
+  PROTECTIONS,
+  CURVES,
+  MODULUS_LENGTHS,
+  PROFILES,
+  ROOT_KEY_HANDLING,
+  OCSP_SIGNING,
+  COGNITO_TIERS,
+  SCEP_CHALLENGES,
+  REMOVAL_POLICIES,
+  DAYS_PER_YEAR,
+  DN,
+  DOMAIN_SUFFIX,
+  NAME_PREFIX,
+  RESERVED_PARAMETER_PREFIX,
+  KMS_KEY_ARN,
+  GROUP_NAME,
+  KMS_OPERATIONAL_KEY,
+} from './patterns';
+import { Collector, child, isRecord, section, pick, integer, flag, text, type Rec } from './validate';
+import { resolveFrontDoor } from './resolve-front-door';
 
 // ---- building blocks ----------------------------------------------------
 
@@ -312,7 +191,7 @@ function resolveSubordinateCas(c: Collector, value: unknown, root: ResolvedRootC
       c,
       rec.label,
       child(path, 'label'),
-      LABEL,
+      CA_LABEL,
       'lowercase letters, digits and "-", at most 32 characters',
       '',
     );
@@ -374,141 +253,6 @@ function resolveOperationalKey(
     modulusLength: pick(c, rec.modulusLength, MODULUS_LENGTHS, 'operationalKey.modulusLength', 2048),
     validityDays,
   };
-}
-
-function resolveDomain(c: Collector, value: unknown, path: string, region?: string): DomainInput | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-  const rec = section(c, value, path, ['name', 'certificateArn']);
-  if (rec.name === undefined || rec.certificateArn === undefined) {
-    c.add(path, 'Both name and certificateArn are required.');
-    return undefined;
-  }
-  const name = text(c, rec.name, child(path, 'name'), HOSTNAME, 'a lowercase host name', '');
-  const arnPath = child(path, 'certificateArn');
-  const certificateArn = text(c, rec.certificateArn, arnPath, ACM_ARN, 'an ACM certificate ARN', '');
-  const arnRegion = ACM_ARN.exec(certificateArn)?.[1];
-  if (region !== undefined && arnRegion !== undefined && arnRegion !== region) {
-    c.add(arnPath, `The certificate must be in ${region} (it is in ${arnRegion}).`);
-  }
-  return { name, certificateArn };
-}
-
-function resolveRestApi(c: Collector, raw: Rec, mtls: boolean, domain?: DomainInput): ResolvedFrontDoor {
-  const endpointType = pick(c, raw.endpointType, ENDPOINT_TYPES, 'frontDoor.endpointType', 'regional');
-  const result: ResolvedFrontDoor = { type: 'rest-api', endpointType, mtls };
-  if (domain) {
-    result.domain = domain;
-  }
-  if (endpointType === 'regional') {
-    for (const key of ['vpcEndpointId', 'vpcId', 'subnetIds']) {
-      if (raw[key] !== undefined) {
-        c.add(`frontDoor.${key}`, 'Only valid when endpointType is "private".');
-      }
-    }
-    if (mtls && !domain) {
-      c.add('frontDoor.domain', 'mTLS needs a custom domain.');
-    }
-    return result;
-  }
-  if (mtls) {
-    c.add('frontDoor.mtls', 'mTLS is not available on a private API.');
-  }
-  if (raw.vpcEndpointId !== undefined) {
-    result.vpcEndpointId = text(
-      c,
-      raw.vpcEndpointId,
-      'frontDoor.vpcEndpointId',
-      VPC_ENDPOINT_ID,
-      'a VPC endpoint id such as vpce-0abc123',
-      '',
-    );
-    return result;
-  }
-  if (raw.vpcId === undefined) {
-    c.add(
-      'frontDoor.vpcEndpointId',
-      'A private API needs vpcEndpointId, or vpcId and subnetIds to create one.',
-    );
-    return result;
-  }
-  result.vpcId = text(c, raw.vpcId, 'frontDoor.vpcId', VPC_ID, 'a VPC id such as vpc-0abc123', '');
-  const subnets = raw.subnetIds;
-  if (!Array.isArray(subnets) || subnets.length === 0) {
-    c.add('frontDoor.subnetIds', 'At least one subnet is required with vpcId.');
-  } else {
-    result.subnetIds = subnets.map((subnet: unknown, index) =>
-      text(c, subnet, `frontDoor.subnetIds[${index}]`, SUBNET_ID, 'a subnet id such as subnet-0abc123', ''),
-    );
-  }
-  return result;
-}
-
-function resolveFrontDoor(c: Collector, value: unknown, cas: ResolvedCa[]): ResolvedFrontDoor {
-  const fallback: ResolvedFrontDoor = { type: 'cloudfront', mtls: false, originSecretVersion: 1 };
-  const raw = section(c, value, 'frontDoor', [
-    'type',
-    'mtls',
-    'domain',
-    'endpointType',
-    'vpcEndpointId',
-    'vpcId',
-    'subnetIds',
-    'originSecretVersion',
-  ]);
-  const type = pick(c, raw.type, FRONT_DOORS, 'frontDoor.type', 'cloudfront');
-  if (raw.type !== undefined && type !== raw.type) {
-    return fallback;
-  }
-  const allowedByType: Record<(typeof FRONT_DOORS)[number], readonly string[]> = {
-    'function-url': ['type'],
-    cloudfront: ['type', 'mtls', 'domain', 'originSecretVersion'],
-    'http-api': ['type', 'mtls', 'domain'],
-    'rest-api': ['type', 'mtls', 'domain', 'endpointType', 'vpcEndpointId', 'vpcId', 'subnetIds'],
-  };
-  for (const key of Object.keys(raw)) {
-    if (key === 'mtls' && type === 'function-url') {
-      c.add('frontDoor.mtls', 'Not supported by a Function URL: it cannot request client certificates.');
-    } else if (!allowedByType[type].includes(key)) {
-      c.add(`frontDoor.${key}`, `Not valid for a "${type}" front door.`);
-    }
-  }
-  if (type === 'function-url') {
-    return { type };
-  }
-  const mtls = flag(c, raw.mtls, 'frontDoor.mtls', false);
-  const domain = resolveDomain(
-    c,
-    raw.domain,
-    'frontDoor.domain',
-    type === 'cloudfront' ? 'us-east-1' : undefined,
-  );
-  if (type === 'cloudfront') {
-    const p521 = cas.some((ca) => ca.algorithm.type === 'ecdsa' && ca.algorithm.curve === 'P-521');
-    if (mtls && p521) {
-      c.add(
-        'frontDoor.mtls',
-        'CloudFront trust stores support ECDSA P-256 and P-384 only, and at least one CA uses P-521.',
-      );
-    }
-    const originSecretVersion = integer(
-      c,
-      raw.originSecretVersion,
-      'frontDoor.originSecretVersion',
-      1,
-      1_000_000,
-      1,
-    );
-    return domain ? { type, mtls, originSecretVersion, domain } : { type, mtls, originSecretVersion };
-  }
-  if (type === 'http-api') {
-    if (mtls && !domain) {
-      c.add('frontDoor.domain', 'mTLS needs a custom domain.');
-    }
-    return domain ? { type, mtls, domain } : { type, mtls };
-  }
-  return resolveRestApi(c, raw, mtls, domain);
 }
 
 function resolveSuffixes(c: Collector, value: unknown, required: boolean): string[] {
