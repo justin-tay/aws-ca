@@ -46,6 +46,19 @@ export interface OperationalCertificateRecord {
   active: boolean;
 }
 
+/** A dynamic (single-use) SCEP challenge. Only a hash of the challenge is kept. */
+export interface ScepChallengeRecord {
+  caLabel: string;
+  /** SHA-256 of the challenge, lowercase hex. */
+  hash: string;
+  /** When set, the challenge works only for a request for exactly this common name. */
+  commonName?: string;
+  /** The authenticated user that asked for it. */
+  createdBy: string;
+  createdAt: Date;
+  expiresAt: Date;
+}
+
 export interface Page<T> {
   items: T[];
   /** Pass back to continue; absent when there is no more. */
@@ -57,7 +70,9 @@ export type RepositoryErrorCode =
   | 'already-exists'
   | 'not-found'
   /** The certificate is already revoked. */
-  | 'already-revoked';
+  | 'already-revoked'
+  /** Too many dynamic SCEP challenges are outstanding for the CA. */
+  | 'limit-reached';
 
 export class RepositoryError extends Error {
   constructor(
@@ -124,4 +139,25 @@ export interface CaRepository {
   /** In ascending sequence order. */
   listOperationalCertificates(caLabel: string): Promise<OperationalCertificateRecord[]>;
   setOperationalCertificateActive(caLabel: string, sequence: number, active: boolean): Promise<void>;
+
+  // -- dynamic SCEP challenges
+  /**
+   * Stores a challenge. Fails with `limit-reached` when `maxOutstanding` unexpired challenges of
+   * the CA exist already. The limit is a guard against flooding, not an exact bound: concurrent
+   * creators may exceed it by a few.
+   */
+  putScepChallenge(
+    record: ScepChallengeRecord,
+    options: { maxOutstanding: number; now: Date },
+  ): Promise<void>;
+  /**
+   * Consumes a challenge: exactly one of any number of concurrent callers gets the record. Returns
+   * undefined, and consumes nothing, when the challenge is unknown, used, expired at `now`, or
+   * bound to a different common name than `commonName`.
+   */
+  consumeScepChallenge(
+    caLabel: string,
+    hash: string,
+    options: { commonName: string; now: Date },
+  ): Promise<ScepChallengeRecord | undefined>;
 }

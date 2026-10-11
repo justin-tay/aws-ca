@@ -10,5 +10,6 @@ export type {
   CertificateStatus,
   OperationalCertificateRecord,
   Page,
+  ScepChallengeRecord,
   RepositoryErrorCode,
 } from './types';

@@ -239,7 +239,7 @@ export const handler = async (
     }),
   );
   // The shared SCEP challenge, generated once; an operator reads it from here to enroll devices.
-  if (config.scep.enabled) {
+  if (config.scep.enabled && config.scep.challenge !== 'dynamic') {
     await ensureScepChallenge(ssm, scepChallengeName(config.namePrefix));
   }
 
@@ -295,7 +295,9 @@ export const handler = async (
       RootFingerprint: root?.fingerprint ?? '',
       Cas: result.cas.map((ca) => `${ca.label}=${ca.fingerprint}`).join(','),
       ...(config.rootCa.keyHandling === 'offline' ? { OfflineRootKeyParameter: offlineParameter } : {}),
-      ...(config.scep.enabled ? { ScepChallengeParameter: scepChallengeName(config.namePrefix) } : {}),
+      ...(config.scep.enabled && config.scep.challenge !== 'dynamic'
+        ? { ScepChallengeParameter: scepChallengeName(config.namePrefix) }
+        : {}),
       ...frontDoor,
     },
   };

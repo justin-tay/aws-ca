@@ -1,5 +1,6 @@
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
+  DeleteCommand,
   DynamoDBDocumentClient,
   GetCommand,
   PutCommand,
@@ -9,7 +10,7 @@ import {
 import { mockClient } from 'aws-sdk-client-mock';
 import { DynamoCaRepository, TABLE_SCHEMA, createDocumentClient } from '../../src/repo';
 import { awsError } from '../keystore/fakes';
-import { caRecord, certRecord, opsRecord } from './contract';
+import { caRecord, certRecord, challengeRecord, opsRecord } from './contract';
 
 // The contract suite proves behaviour against the in-memory implementation and, opt-in, against a
 // real table. These tests pin the requests the DynamoDB implementation sends: the key layout, the
@@ -255,6 +256,34 @@ describe('CRL numbers and publication', () => {
   });
 });
 
+describe('dynamic SCEP challenges', () => {
+  it('stores only the hash, with an expiry DynamoDB can enforce, under the CA', async () => {
+    dynamo.on(QueryCommand).resolves({ Count: 0 });
+    dynamo.on(PutCommand).resolves({});
+    const record = challengeRecord('issuing', { commonName: 'device-1' });
+    await repo.putScepChallenge(record, { maxOutstanding: 5, now: new Date('2026-10-10T00:00:00Z') });
+    const item = firstInput(dynamo.commandCalls(PutCommand)).Item as Record<string, unknown>;
+    expect(item).toMatchObject({
+      pk: 'CA#issuing',
+      sk: `SCEPOTP#${record.hash}`,
+      commonName: 'device-1',
+      expiresAtEpoch: Math.floor(record.expiresAt.getTime() / 1000),
+    });
+    expect(firstInput(dynamo.commandCalls(PutCommand)).ConditionExpression).toBe('attribute_not_exists(pk)');
+    expect(item[TABLE_SCHEMA.ttlAttribute]).toBeGreaterThan(Math.floor(record.expiresAt.getTime() / 1000));
+  });
+
+  it('consumes with one conditional delete that also checks expiry and common name', async () => {
+    dynamo.on(DeleteCommand).resolves({});
+    await repo.consumeScepChallenge('issuing', 'ab', { commonName: 'd', now: new Date() });
+    const input = firstInput(dynamo.commandCalls(DeleteCommand));
+    expect(input.Key).toEqual({ pk: 'CA#issuing', sk: 'SCEPOTP#ab' });
+    expect(input.ConditionExpression).toContain('expiresAtEpoch > :now');
+    expect(input.ConditionExpression).toContain('commonName = :commonName');
+    expect(input.ReturnValues).toBe('ALL_OLD');
+  });
+});
+
 describe('item shapes', () => {
   it('reads a CA back from what it wrote', async () => {
     let written: Record<string, unknown> | undefined;
@@ -346,6 +375,7 @@ describe('every request is a valid DynamoDB expression', () => {
     dynamo.on(GetCommand).resolves({});
     dynamo.on(QueryCommand).resolves({ Items: [] });
     dynamo.on(UpdateCommand).resolves({ Attributes: { ...updated.Attributes, crlNumber: 1 } });
+    dynamo.on(DeleteCommand).resolves({});
 
     await repo.createCa(caRecord('issuing'));
     await repo.getCa('issuing');
@@ -363,13 +393,15 @@ describe('every request is a valid DynamoDB expression', () => {
     await repo.putOperationalCertificate(opsRecord('issuing', 1));
     await repo.listOperationalCertificates('issuing');
     await repo.setOperationalCertificateActive('issuing', 1, true);
+    await repo.putScepChallenge(challengeRecord('issuing'), { maxOutstanding: 5, now: new Date() });
+    await repo.consumeScepChallenge('issuing', 'ab', { commonName: 'device', now: new Date() });
 
-    const calls = [PutCommand, GetCommand, QueryCommand, UpdateCommand].flatMap((command) =>
+    const calls = [PutCommand, GetCommand, QueryCommand, UpdateCommand, DeleteCommand].flatMap((command) =>
       dynamo
         .commandCalls(command as never)
         .map((call) => (call.args[0] as { input: Record<string, unknown> }).input),
     );
-    expect(calls.length).toBeGreaterThanOrEqual(16);
+    expect(calls.length).toBeGreaterThanOrEqual(19);
     const problems = calls.flatMap((input) =>
       problemsIn(input).map(
         (problem) =>

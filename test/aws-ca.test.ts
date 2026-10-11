@@ -366,6 +366,33 @@ describe('SCEP', () => {
     expect(Object.keys(outputs)).toEqual(expect.arrayContaining(['ScepEndpoint', 'ScepChallengeParameter']));
   });
 
+  it('with dynamic challenges only, has no static challenge and adds the SCEP group and URL', () => {
+    const stack = stackFor({ scep: { challenge: 'dynamic' } });
+    expect(allows(statementsOf(stack, 'api')).some((s) => s.Sid === 'ScepChallenge')).toBe(false);
+    const template = Template.fromStack(stack);
+    const outputs = template.toJSON().Outputs as Record<string, unknown>;
+    expect(Object.keys(outputs)).toEqual(expect.arrayContaining(['ScepEndpoint', 'ScepChallengeUrl']));
+    expect(Object.keys(outputs)).not.toContain('ScepChallengeParameter');
+    const groups = Object.values(template.findResources('AWS::Cognito::UserPoolGroup')).map(
+      (group) => group.Properties.GroupName as string,
+    );
+    expect(groups).toContain('scep-admin');
+  });
+
+  it('with both kinds, keeps the static challenge and adds the rest', () => {
+    const stack = stackFor({ scep: { challenge: 'both' } });
+    expect(allows(statementsOf(stack, 'api')).some((s) => s.Sid === 'ScepChallenge')).toBe(true);
+    const outputs = Template.fromStack(stack).toJSON().Outputs as Record<string, unknown>;
+    expect(Object.keys(outputs)).toEqual(
+      expect.arrayContaining(['ScepChallengeParameter', 'ScepChallengeUrl']),
+    );
+  });
+
+  it('has no SCEP group when challenges are static', () => {
+    const groups = Object.values(Template.fromStack(stackFor()).findResources('AWS::Cognito::UserPoolGroup'));
+    expect(groups.map((group) => group.Properties.GroupName)).not.toContain('scep-admin');
+  });
+
   it('is absent when disabled', () => {
     const stack = stackFor({ scep: { enabled: false } });
     expect(allows(statementsOf(stack, 'api')).some((s) => s.Sid === 'ScepChallenge')).toBe(false);

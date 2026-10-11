@@ -68,7 +68,12 @@ describe('defaults', () => {
   it('defaults to CloudFront without mTLS, Cognito Lite and the documented groups', () => {
     expect(config.frontDoor).toEqual({ type: 'cloudfront', mtls: false });
     expect(config.auth.cognitoTier).toBe('lite');
-    expect(config.groups).toEqual({ client: 'est-client', server: 'est-server', admin: 'est-admin' });
+    expect(config.groups).toEqual({
+      client: 'est-client',
+      server: 'est-server',
+      admin: 'est-admin',
+      scep: 'scep-admin',
+    });
     expect(config.namePrefix).toBe('/private-ca');
   });
 });
@@ -288,10 +293,47 @@ describe('operational key', () => {
   });
 });
 
+const scepPaths = (scep: unknown): string[] => issuesOf(withValid({ scep })).map((issue) => issue.path);
+
 describe('SCEP', () => {
   it('needs a CA that issues the client profile', () => {
     const input = withValid({ subordinateCas: [{ label: 'servers', profiles: ['server'] }] });
     expect(issuesOf(input)).toEqual([expect.objectContaining({ path: 'scep.enabled' })]);
+  });
+
+  it('uses a static challenge, valid for an hour, unless told otherwise', () => {
+    expect(resolve(withValid({})).scep).toEqual({
+      enabled: true,
+      challenge: 'static',
+      dynamicChallenge: { validityMinutes: 60, maxOutstanding: 100, lengthBytes: 8 },
+    });
+  });
+
+  it('takes the challenge mode and the limits of dynamic challenges', () => {
+    const config = resolve(
+      withValid({
+        scep: { challenge: 'both', dynamicChallenge: { validityMinutes: 10, maxOutstanding: 5 } },
+      }),
+    );
+    expect(config.scep).toMatchObject({
+      challenge: 'both',
+      dynamicChallenge: { validityMinutes: 10, maxOutstanding: 5 },
+    });
+  });
+
+  it('rejects an unknown mode and out-of-range limits', () => {
+    expect(scepPaths({ challenge: 'one-time' })).toEqual(['scep.challenge']);
+    expect(scepPaths({ dynamicChallenge: { validityMinutes: 0 } })).toEqual([
+      'scep.dynamicChallenge.validityMinutes',
+    ]);
+    expect(scepPaths({ dynamicChallenge: { maxOutstanding: 0 } })).toEqual([
+      'scep.dynamicChallenge.maxOutstanding',
+    ]);
+  });
+
+  it('keeps the SCEP group apart from the others', () => {
+    const input = withValid({ groups: { scep: 'est-admin' } });
+    expect(issuesOf(input)).toEqual([expect.objectContaining({ path: 'groups.scep' })]);
   });
 });
 

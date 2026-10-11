@@ -7,6 +7,7 @@ import type { CertificateIssuer } from '../issuance';
 import { silentLogger, type Logger } from '../log';
 import type { DecryptingResponder, OperationalKeyService } from '../operational';
 import { PolicyError, decideScepIssuance } from '../policy';
+import type { DynamicChallenges } from './dynamic';
 import type { CaRecord, CaRepository } from '../repo';
 import {
   FailInfo,
@@ -37,7 +38,10 @@ export interface ScepDependencies {
   repository: CaRepository;
   operational: Pick<OperationalKeyService, 'decryptingResponder'>;
   issuer: Pick<CertificateIssuer, 'issue'>;
-  challenge: ChallengeProvider;
+  /** The static challenge; absent when this deployment uses dynamic challenges only. */
+  challenge?: ChallengeProvider;
+  /** Dynamic challenges; absent when this deployment uses the static challenge only. */
+  dynamicChallenges?: Pick<DynamicChallenges, 'consume'>;
   logger?: Logger;
   now?: () => Date;
 }
@@ -268,8 +272,7 @@ export class ScepServer {
       // First enrollment: signed with a throwaway certificate, and authorised by the challenge. The
       // certificate's key need not be the one being certified: the CSR proves possession of that,
       // and the response is encrypted to the signer's key, which is public information anyway.
-      const expected = await this.deps.challenge.get();
-      if (csr.challengePassword === undefined || !sameSecret(csr.challengePassword, expected)) {
+      if (!(await this.challengeAccepted(ca, csr.challengePassword, decision.commonName))) {
         throw new ScepError(FailInfo.badRequest, 'The challenge password is wrong.');
       }
     } else {
@@ -305,6 +308,24 @@ export class ScepServer {
       renewal: signer.subject !== signer.issuer,
     });
     return certificate;
+  }
+
+  /**
+   * The static challenge is compared; a dynamic one is consumed, atomically, only here, after the
+   * request has passed the policy, and only if it is bound to no other name.
+   */
+  private async challengeAccepted(
+    ca: CaRecord,
+    given: string | undefined,
+    commonName: string,
+  ): Promise<boolean> {
+    if (given === undefined || given === '') {
+      return false;
+    }
+    if (this.deps.challenge && sameSecret(given, await this.deps.challenge.get())) {
+      return true;
+    }
+    return (await this.deps.dynamicChallenges?.consume(ca.label, given, commonName)) ?? false;
   }
 
   private async getCert(ca: CaRecord, payload: Uint8Array): Promise<X509Certificate> {

@@ -609,6 +609,24 @@ if any, are listed).
   update, destroy), `cloudfront` (origin secret, plain-HTTP CRL/OCSP, optional
   mTLS, revoked certificate refused, destroy), `keystore` and `repository`.
 
+## Slice 12: dynamic SCEP challenges
+
+**Status: implemented.** Design in `docs/design.md` ("Dynamic SCEP challenges").
+
+- Repository: `putScepChallenge` / `consumeScepChallenge` (atomic conditional
+  delete; outstanding cap), contract tests for both repositories and a request
+  shape test for DynamoDB (all expressions validated).
+- Config: `scep.challenge` (`static` | `dynamic` | `both`), `scep.dynamicChallenge`
+  (`validityMinutes`, `maxOutstanding`, `lengthBytes`), `groups.scep`.
+- `DynamicChallenges`, `ScepChallengeServer` (NDES page, JSON endpoint),
+  `ScepServer` consumes after policy; stack: static parameter, IAM and output
+  only when static is on; the `scep-admin` group and `ScepChallengeUrl` output
+  only when dynamic is on.
+- Compatibility finding from the `Get-NDESOTP` source: the page must be UTF-16LE
+  with a BOM and the first 16-hex run must be the password.
+- Not run on real AWS yet: the repository contract has dynamic-challenge cases
+  that run with `npm run test:aws -- --yes repository`.
+
 ## Cross-slice risks
 
 | Risk                                                  | Mitigation                                                                                                           |

@@ -1,5 +1,11 @@
 import type { KeyRef } from '../../src/keystore';
-import type { CaRecord, CaRepository, CertificateRecord, OperationalCertificateRecord } from '../../src/repo';
+import type {
+  CaRecord,
+  CaRepository,
+  CertificateRecord,
+  OperationalCertificateRecord,
+  ScepChallengeRecord,
+} from '../../src/repo';
 
 export interface RepositoryUnderTest {
   repository: CaRepository;
@@ -66,6 +72,22 @@ export function opsRecord(
     keyRef,
     notAfter: new Date(NOW.getTime() + 365 * DAY),
     active: true,
+    ...overrides,
+  };
+}
+
+let challengeCounter = 0;
+export function challengeRecord(
+  caLabel: string,
+  overrides: Partial<ScepChallengeRecord> = {},
+): ScepChallengeRecord {
+  challengeCounter += 1;
+  return {
+    caLabel,
+    hash: `${Date.now().toString(16)}${challengeCounter.toString(16)}`.padStart(64, '0'),
+    createdBy: 'mdm',
+    createdAt: new Date(NOW),
+    expiresAt: new Date(NOW.getTime() + 60 * 60 * 1000),
     ...overrides,
   };
 }
@@ -455,6 +477,99 @@ export function repositoryContract(name: string, create: () => Promise<Repositor
         await repo.putOperationalCertificate(opsRecord(second, 1));
         expect(await repo.listOperationalCertificates(first)).toHaveLength(1);
         expect(await repo.listOperationalCertificates(second)).toHaveLength(1);
+      });
+    });
+
+    describe('dynamic SCEP challenges', () => {
+      const at = new Date(NOW.getTime() + 60 * 1000);
+
+      it('is consumed once, and returns what was stored', async () => {
+        const label = uniqueLabel();
+        const record = challengeRecord(label, { commonName: 'device-1' });
+        await repo.putScepChallenge(record, { maxOutstanding: 10, now: NOW });
+        expect(
+          await repo.consumeScepChallenge(label, record.hash, { commonName: 'device-1', now: at }),
+        ).toEqual(record);
+        expect(
+          await repo.consumeScepChallenge(label, record.hash, { commonName: 'device-1', now: at }),
+        ).toBeUndefined();
+      });
+
+      it('lets exactly one of many concurrent consumers win', async () => {
+        const label = uniqueLabel();
+        const record = challengeRecord(label);
+        await repo.putScepChallenge(record, { maxOutstanding: 10, now: NOW });
+        const results = await Promise.all(
+          Array.from({ length: 8 }, () =>
+            repo.consumeScepChallenge(label, record.hash, { commonName: 'any', now: at }),
+          ),
+        );
+        expect(results.filter((result) => result !== undefined)).toHaveLength(1);
+      });
+
+      it('is not consumed by a request for another common name', async () => {
+        const label = uniqueLabel();
+        const record = challengeRecord(label, { commonName: 'device-1' });
+        await repo.putScepChallenge(record, { maxOutstanding: 10, now: NOW });
+        expect(
+          await repo.consumeScepChallenge(label, record.hash, { commonName: 'device-2', now: at }),
+        ).toBeUndefined();
+        expect(
+          await repo.consumeScepChallenge(label, record.hash, { commonName: 'device-1', now: at }),
+        ).toBeDefined();
+      });
+
+      it('works for any common name when it is not bound', async () => {
+        const label = uniqueLabel();
+        const record = challengeRecord(label);
+        await repo.putScepChallenge(record, { maxOutstanding: 10, now: NOW });
+        expect(
+          await repo.consumeScepChallenge(label, record.hash, { commonName: 'whatever', now: at }),
+        ).toBeDefined();
+      });
+
+      it('is refused once expired', async () => {
+        const label = uniqueLabel();
+        const record = challengeRecord(label);
+        await repo.putScepChallenge(record, { maxOutstanding: 10, now: NOW });
+        const later = new Date(record.expiresAt.getTime() + 1000);
+        expect(
+          await repo.consumeScepChallenge(label, record.hash, { commonName: 'x', now: later }),
+        ).toBeUndefined();
+      });
+
+      it('is scoped to its CA', async () => {
+        const first = uniqueLabel();
+        const second = uniqueLabel();
+        const record = challengeRecord(first);
+        await repo.putScepChallenge(record, { maxOutstanding: 10, now: NOW });
+        expect(
+          await repo.consumeScepChallenge(second, record.hash, { commonName: 'x', now: at }),
+        ).toBeUndefined();
+      });
+
+      it('limits the outstanding challenges of a CA, counting only unexpired ones', async () => {
+        const label = uniqueLabel();
+        const other = uniqueLabel();
+        const options = { maxOutstanding: 2, now: NOW };
+        await repo.putScepChallenge(challengeRecord(label), options);
+        await repo.putScepChallenge(challengeRecord(label), options);
+        await expect(repo.putScepChallenge(challengeRecord(label), options)).rejects.toMatchObject({
+          code: 'limit-reached',
+        });
+        // Another CA has its own allowance.
+        await repo.putScepChallenge(challengeRecord(other), options);
+        // After the first two have expired there is room again.
+        const later = new Date(NOW.getTime() + 2 * 60 * 60 * 1000);
+        await repo.putScepChallenge(challengeRecord(label), { maxOutstanding: 2, now: later });
+      });
+
+      it('frees a slot when a challenge is consumed', async () => {
+        const label = uniqueLabel();
+        const first = challengeRecord(label);
+        await repo.putScepChallenge(first, { maxOutstanding: 1, now: NOW });
+        await repo.consumeScepChallenge(label, first.hash, { commonName: 'x', now: at });
+        await repo.putScepChallenge(challengeRecord(label), { maxOutstanding: 1, now: NOW });
       });
     });
   });

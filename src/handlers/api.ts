@@ -19,7 +19,7 @@ import { KeyStoreRegistry } from '../keystore';
 import { OcspServer } from '../ocsp';
 import { CertificateIssuer } from '../issuance';
 import { OperationalKeyService } from '../operational';
-import { ScepServer, SsmChallenge, scepChallengeName } from '../scep';
+import { DynamicChallenges, ScepChallengeServer, ScepServer, SsmChallenge, scepChallengeName } from '../scep';
 import { createLogger } from '../log';
 import { RevocationServer } from '../revocation';
 import { DynamoCaRepository, createDocumentClient } from '../repo';
@@ -100,6 +100,7 @@ interface Runtime {
   revocation: RevocationServer;
   ocsp: OcspServer;
   scep: ScepServer;
+  scepChallenge: ScepChallengeServer;
   crl: CrlService;
   /** The issuing CAs: the root's key is not available here, so its CRL is refreshed elsewhere. */
   issuingLabels: string[];
@@ -144,12 +145,27 @@ function createRuntime(): Runtime {
   const revocation = new RevocationServer({ config, repository, authenticator, crl, store, logger });
   const operational = new OperationalKeyService({ config, repository, keyStores, logger });
   const ocsp = new OcspServer({ config, repository, operational, keyStores, logger });
+  const mode = config.scep.challenge;
+  const dynamicChallenges = new DynamicChallenges({
+    repository,
+    validityMinutes: config.scep.dynamicChallenge.validityMinutes,
+    maxOutstanding: config.scep.dynamicChallenge.maxOutstanding,
+    lengthBytes: config.scep.dynamicChallenge.lengthBytes,
+  });
   const scep = new ScepServer({
     config,
     repository,
     operational,
     issuer: new CertificateIssuer({ config, repository, keyStores }),
-    challenge: new SsmChallenge(ssm, scepChallengeName(config.namePrefix)),
+    ...(mode === 'dynamic' ? {} : { challenge: new SsmChallenge(ssm, scepChallengeName(config.namePrefix)) }),
+    ...(mode === 'static' ? {} : { dynamicChallenges }),
+    logger,
+  });
+  const scepChallenge = new ScepChallengeServer({
+    config,
+    repository,
+    authenticator,
+    challenges: dynamicChallenges,
     logger,
   });
 
@@ -160,6 +176,7 @@ function createRuntime(): Runtime {
     revocation,
     ocsp,
     scep,
+    scepChallenge,
     crl,
     ...(process.env.PUBLIC_URLS_PARAMETER
       ? { publicUrls: new SsmPublicUrls(ssm, process.env.PUBLIC_URLS_PARAMETER) }
@@ -236,6 +253,7 @@ export const handler = async (
   const routed =
     (await runtime.revocation.handle(request)) ??
     (await runtime.ocsp.handle(request)) ??
+    (await runtime.scepChallenge.handle(request)) ??
     (await runtime.scep.handle(request));
   return toResult(routed ?? (await runtime.server.handle(request)));
 };

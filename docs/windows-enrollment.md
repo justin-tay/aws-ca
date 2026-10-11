@@ -81,6 +81,22 @@ Get-SCEPCertificate -ComputerName <host> -UseSSL -Suffix 'scep/issuing' `
   -SigningCert (Get-Item Cert:CurrentUserMy<thumbprint>) -KeyAlgorithm RSA -KeyLength 2048
 ```
 
+With dynamic challenges (`scep.challenge: 'dynamic'` or `'both'`), fetch a
+single-use challenge from the NDES-style page as a user in the `scep-admin`
+group, then enroll with it:
+
+```powershell
+$mdm = Get-Credential   # a Cognito user in scep-admin
+$otp = Get-NDESOTP -ComputerName <host> -Suffix 'scep/issuing/certsrv/mscep_admin' `
+  -Credential $mdm -BasicAuthentication
+Get-SCEPCertificate -ComputerName <host> -UseSSL -Suffix 'scep/issuing' `
+  -ChallengePassword $otp -Subject 'CN=my-device' -KeyAlgorithm RSA -KeyLength 2048
+```
+
+The challenge works once. `Get-NDESOTP` reads the first 16 hex digits (its default
+`-PasswordLength 8`), which is the default length here (`lengthBytes: 8`); if you
+configure more, pass `-PasswordLength <lengthBytes>`.
+
 EST, with a Cognito user in the `est-client` group (the CN must be the user name):
 
 ```powershell

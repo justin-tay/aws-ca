@@ -6,6 +6,7 @@ import {
   type CertificateRecord,
   type OperationalCertificateRecord,
   type Page,
+  type ScepChallengeRecord,
 } from './types';
 
 const clone = <T>(value: T): T => structuredClone(value);
@@ -25,6 +26,7 @@ export class InMemoryCaRepository implements CaRepository {
   private readonly certificates = new Map<string, CertificateRecord>();
   private readonly published = new Map<string, number>();
   private readonly operational = new Map<string, OperationalCertificateRecord>();
+  private readonly challenges = new Map<string, ScepChallengeRecord>();
 
   private static certificateKey(caLabel: string, serialNumber: string): string {
     return `${caLabel}\u0000${canonicalSerial(serialNumber)}`;
@@ -176,5 +178,46 @@ export class InMemoryCaRepository implements CaRepository {
     }
     found.active = active;
     return Promise.resolve();
+  }
+
+  putScepChallenge(
+    record: ScepChallengeRecord,
+    options: { maxOutstanding: number; now: Date },
+  ): Promise<void> {
+    const outstanding = [...this.challenges.values()].filter(
+      (challenge) => challenge.caLabel === record.caLabel && challenge.expiresAt > options.now,
+    ).length;
+    if (outstanding >= options.maxOutstanding) {
+      return Promise.reject(
+        new RepositoryError(
+          'limit-reached',
+          `Too many SCEP challenges are outstanding for ${record.caLabel}.`,
+        ),
+      );
+    }
+    const key = `${record.caLabel}#${record.hash}`;
+    if (this.challenges.has(key)) {
+      return Promise.reject(new RepositoryError('already-exists', 'The SCEP challenge already exists.'));
+    }
+    this.challenges.set(key, clone(record));
+    return Promise.resolve();
+  }
+
+  consumeScepChallenge(
+    caLabel: string,
+    hash: string,
+    options: { commonName: string; now: Date },
+  ): Promise<ScepChallengeRecord | undefined> {
+    const key = `${caLabel}#${hash}`;
+    const found = this.challenges.get(key);
+    if (
+      !found ||
+      found.expiresAt <= options.now ||
+      (found.commonName !== undefined && found.commonName !== options.commonName)
+    ) {
+      return Promise.resolve(undefined);
+    }
+    this.challenges.delete(key);
+    return Promise.resolve(clone(found));
   }
 }

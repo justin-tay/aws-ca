@@ -109,16 +109,17 @@ certificate is refused (401) however the trust store judged it.
 
 ## When something is wrong
 
-| Symptom                                             | Likely cause and what to do                                                                                   |
-| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| 403 on every request through CloudFront             | The origin secret and the distribution disagree. Redeploy; see the table above.                               |
-| 403 from the Function URL directly                  | Correct: with `cloudfront` the origin refuses anything without the secret.                                    |
-| 502 from the Function URL or CloudFront             | The Lambda threw. Look in the API function's log group; a cold start over its timeout is the usual cause.     |
-| `tryLater` from OCSP, or SCEP "not ready"           | No operational certificate yet. The bootstrap creates it on every deploy; check the bootstrap function's log. |
-| CRL URL returns 404                                 | No CRL has been published for that CA yet. Invoke the daily rule's targets, or redeploy.                      |
-| Windows says it cannot find the root in `GetCACert` | Use a build that includes the root in the response (this one does).                                           |
-| `The challenge password is wrong`                   | The challenge was rotated, or a device still has the old one.                                                 |
-| A revocation did not show in the CRL                | The index lags by milliseconds; the next revocation or the daily refresh includes it.                         |
+| Symptom                                             | Likely cause and what to do                                                                                              |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| 403 on every request through CloudFront             | The origin secret and the distribution disagree. Redeploy; see the table above.                                          |
+| 403 from the Function URL directly                  | Correct: with `cloudfront` the origin refuses anything without the secret.                                               |
+| 502 from the Function URL or CloudFront             | The Lambda threw. Look in the API function's log group; a cold start over its timeout is the usual cause.                |
+| `tryLater` from OCSP, or SCEP "not ready"           | No operational certificate yet. The bootstrap creates it on every deploy; check the bootstrap function's log.            |
+| CRL URL returns 404                                 | No CRL has been published for that CA yet. Invoke the daily rule's targets, or redeploy.                                 |
+| Windows says it cannot find the root in `GetCACert` | Use a build that includes the root in the response (this one does).                                                      |
+| `The challenge password is wrong`                   | Static: rotated, or a device has the old one. Dynamic: used already, expired, bound to another name, or from another CA. |
+| 429 from the SCEP challenge page or endpoint        | `scep.dynamicChallenge.maxOutstanding` unexpired challenges exist for the CA; they expire after `validityMinutes`.       |
+| A revocation did not show in the CRL                | The index lags by milliseconds; the next revocation or the daily refresh includes it.                                    |
 
 Logs are structured JSON, one object per line, and are redacted by field name:
 authorization headers, passwords, tokens, keys, CSRs and PEM never reach them.

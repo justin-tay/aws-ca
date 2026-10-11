@@ -40,10 +40,13 @@ import { resolveConfig, type AwsCaConfigInput } from '../../src/config';
 import { CertificateIssuer } from '../../src/issuance';
 import { OperationalKeyService } from '../../src/operational';
 import { InMemoryCaRepository } from '../../src/repo';
+import type { AuthenticatedUser, Authenticator } from '../../src/auth';
 import {
+  DynamicChallenges,
   FailInfo,
   MessageType,
   PkiStatus,
+  ScepChallengeServer,
   ScepServer,
   openEnvelope,
   parsePkiMessage,
@@ -62,9 +65,13 @@ const CHALLENGE = 'correct-horse-battery';
 const challenge: ChallengeProvider = { get: () => Promise.resolve(CHALLENGE) };
 const SHA256 = '2.16.840.1.101.3.4.2.1';
 
-async function setup(input: AwsCaConfigInput = {}) {
+async function setup(input: AwsCaConfigInput = {}, challenges: 'static' | 'dynamic' | 'both' = 'static') {
   const logs: string[] = [];
-  const config = resolveConfig({ policy: { allowedDomainSuffixes: ['example.internal'] }, ...input });
+  const config = resolveConfig({
+    policy: { allowedDomainSuffixes: ['example.internal'] },
+    scep: { challenge: challenges },
+    ...input,
+  });
   const repository = new InMemoryCaRepository();
   const keyStores = new MemoryKeyStores();
   await bootstrapCas({
@@ -76,19 +83,25 @@ async function setup(input: AwsCaConfigInput = {}) {
   });
   const operational = new OperationalKeyService({ config, repository, keyStores });
   await operational.ensureAll();
+  const dynamicChallenges = new DynamicChallenges({
+    repository,
+    validityMinutes: config.scep.dynamicChallenge.validityMinutes,
+    maxOutstanding: config.scep.dynamicChallenge.maxOutstanding,
+  });
   const server = new ScepServer({
     config,
     repository,
     operational,
     issuer: new CertificateIssuer({ config, repository, keyStores }),
-    challenge,
+    ...(challenges === 'dynamic' ? {} : { challenge }),
+    ...(challenges === 'static' ? {} : { dynamicChallenges }),
     logger: {
       info: (m, f) => logs.push(`${m} ${JSON.stringify(f)}`),
       warn: (m, f) => logs.push(`${m} ${JSON.stringify(f)}`),
       error: (m, f) => logs.push(`${m} ${JSON.stringify(f)}`),
     },
   });
-  return { config, repository, server, operational, logs };
+  return { config, repository, server, operational, logs, dynamicChallenges };
 }
 
 const handle = (server: ScepServer, request: Partial<HttpRequest>): Promise<HttpResponse | undefined> =>
@@ -315,6 +328,163 @@ describe('SCEP discovery', () => {
   it('is off when SCEP is disabled', async () => {
     const { server } = await setup({ scep: { enabled: false } });
     expect((await handle(server, { query: 'operation=GetCACaps' }))?.status).toBe(404);
+  });
+});
+
+const enrollWith = async (
+  harness: Awaited<ReturnType<typeof setup>>,
+  commonName: string,
+  password: string,
+): Promise<Awaited<ReturnType<typeof exchange>>> => {
+  const { ra } = await raOf(harness.server);
+  const identity = await newIdentity(commonName);
+  const csr = await csrFor(identity, commonName, password);
+  return exchange(harness.server, identity, pkiMessage(identity, ra, MessageType.PKCSReq, csr), ra);
+};
+
+const auth = (user: string): Record<string, string> => ({
+  authorization: `Basic ${Buffer.from(`${user}:pw`).toString('base64')}`,
+});
+
+describe('SCEP enrollment with dynamic challenges', () => {
+  it('issues for a dynamic challenge, once', async () => {
+    const harness = await setup({}, 'dynamic');
+    const { challenge: issued } = await harness.dynamicChallenges.issue('issuing', { createdBy: 'mdm' });
+    // NDES's length, which PSCertificateEnrollment's Get-NDESOTP looks for by default.
+    expect(issued).toMatch(/^[0-9A-F]{16}$/);
+
+    const first = await enrollWith(harness, 'device-1', issued);
+    expect(first.status).toBe(PkiStatus.success);
+    const second = await enrollWith(harness, 'device-2', issued);
+    expect(second).toMatchObject({ status: PkiStatus.failure, failInfo: FailInfo.badRequest });
+    expect((await harness.repository.listCertificatesByOwner('scep:device-2')).items).toHaveLength(0);
+  });
+
+  it('does not accept the static challenge when only dynamic ones are enabled', async () => {
+    const harness = await setup({}, 'dynamic');
+    const result = await enrollWith(harness, 'device-3', CHALLENGE);
+    expect(result).toMatchObject({ status: PkiStatus.failure, failInfo: FailInfo.badRequest });
+  });
+
+  it('accepts either kind when both are enabled', async () => {
+    const harness = await setup({}, 'both');
+    const { challenge: issued } = await harness.dynamicChallenges.issue('issuing', { createdBy: 'mdm' });
+    expect((await enrollWith(harness, 'device-4', CHALLENGE)).status).toBe(PkiStatus.success);
+    expect((await enrollWith(harness, 'device-5', issued)).status).toBe(PkiStatus.success);
+    // The static one is not used up.
+    expect((await enrollWith(harness, 'device-6', CHALLENGE)).status).toBe(PkiStatus.success);
+  });
+
+  it('keeps a bound challenge for the device it is bound to', async () => {
+    const harness = await setup({}, 'dynamic');
+    const { challenge: issued } = await harness.dynamicChallenges.issue('issuing', {
+      createdBy: 'mdm',
+      commonName: 'device-7',
+    });
+    const wrong = await enrollWith(harness, 'device-8', issued);
+    expect(wrong).toMatchObject({ status: PkiStatus.failure, failInfo: FailInfo.badRequest });
+    // The refused attempt did not use it up.
+    expect((await enrollWith(harness, 'device-7', issued)).status).toBe(PkiStatus.success);
+  });
+
+  it('does not use a challenge up for a request the policy refuses', async () => {
+    const harness = await setup({}, 'dynamic');
+    const { challenge: issued } = await harness.dynamicChallenges.issue('issuing', { createdBy: 'mdm' });
+    const { ra } = await raOf(harness.server);
+    const identity = await newIdentity('device-9');
+    // No CN at all: refused by policy before the challenge is looked at.
+    const pem = await makeCsr('O=nobody', identity.keys, 'SHA-256', {
+      attributes: [new ChallengePasswordAttribute(issued)],
+    });
+    const csr = new Uint8Array(Buffer.from(pem.replaceAll(/-----[A-Z ]+-----|\s+/g, ''), 'base64'));
+    const refused = await exchange(
+      harness.server,
+      identity,
+      pkiMessage(identity, ra, MessageType.PKCSReq, csr),
+      ra,
+    );
+    expect(refused).toMatchObject({ status: PkiStatus.failure, failInfo: FailInfo.badRequest });
+    expect((await enrollWith(harness, 'device-9', issued)).status).toBe(PkiStatus.success);
+  });
+
+  it('refuses an expired challenge', async () => {
+    const harness = await setup({}, 'dynamic');
+    let current = new Date();
+    const clock = new DynamicChallenges({
+      repository: harness.repository,
+      validityMinutes: 1,
+      maxOutstanding: 10,
+      now: () => current,
+    });
+    const { challenge: issued } = await clock.issue('issuing', { createdBy: 'mdm' });
+    current = new Date(current.getTime() + 2 * 60_000);
+    expect(await clock.consume('issuing', issued, 'device-10')).toBe(false);
+  });
+
+  it('is requested over the NDES-style page and the JSON endpoint, then used', async () => {
+    const harness = await setup({}, 'dynamic');
+    const users: Record<string, AuthenticatedUser> = {
+      'mdm:pw': { username: 'mdm', groups: ['scep-admin'] },
+      'bob:pw': { username: 'bob', groups: ['est-client'] },
+    };
+    const authenticator: Authenticator = {
+      authenticate: (username, password) => Promise.resolve(users[`${username}:${password}`]),
+    };
+    const challengeServer = new ScepChallengeServer({
+      config: harness.config,
+      repository: harness.repository,
+      authenticator,
+      challenges: harness.dynamicChallenges,
+    });
+    const ask = (path: string, extra: Partial<HttpRequest>): Promise<HttpResponse | undefined> =>
+      challengeServer.handle({ method: 'GET', path, headers: {}, body: new Uint8Array(), ...extra });
+
+    const page = await ask('/scep/issuing/certsrv/mscep_admin/', { headers: auth('mdm') });
+    expect(page?.status).toBe(200);
+    expect(page?.headers['content-type']).toContain('text/html');
+    expect(page?.isBase64Encoded).toBe(true);
+    const html = Buffer.from(page?.body ?? '', 'base64').toString('utf16le');
+    expect(html.startsWith('\uFEFF')).toBe(true);
+    expect(page?.headers['cache-control']).toBe('no-store');
+    const scraped = /The enrollment challenge password is: <B>([0-9A-F]{16})<\/B>/.exec(html);
+    // Get-NDESOTP takes the first run of 16 hex digits: nothing before the challenge may be one.
+    expect(/[A-F0-9]{16}/.exec(html)?.[0]).toBe(scraped?.[1]);
+    expect(scraped).not.toBeNull();
+    expect((await enrollWith(harness, 'device-11', scraped?.[1] ?? '')).status).toBe(PkiStatus.success);
+
+    const api = await ask('/ca/issuing/scep/challenge', {
+      method: 'POST',
+      headers: { ...auth('mdm'), 'content-type': 'application/json' },
+      body: new TextEncoder().encode(JSON.stringify({ commonName: 'device-12' })),
+    });
+    expect(api?.status).toBe(201);
+    const body = JSON.parse(api?.body ?? '{}') as { challenge: string; commonName: string };
+    expect(body.commonName).toBe('device-12');
+    expect((await enrollWith(harness, 'device-12', body.challenge)).status).toBe(PkiStatus.success);
+
+    // Only the SCEP (or admin) group, and only with credentials.
+    expect((await ask('/scep/issuing/certsrv/mscep_admin/', {}))?.status).toBe(401);
+    expect((await ask('/scep/issuing/certsrv/mscep_admin/', { headers: auth('bob') }))?.status).toBe(403);
+    // The bare NDES path works when exactly one CA issues client certificates.
+    expect((await ask('/certsrv/mscep_admin/', { headers: auth('mdm') }))?.status).toBe(200);
+    expect((await ask('/scep/nope/certsrv/mscep_admin/', { headers: auth('mdm') }))?.status).toBe(404);
+  });
+
+  it('answers 404 where dynamic challenges are not enabled', async () => {
+    const harness = await setup({}, 'static');
+    const challengeServer = new ScepChallengeServer({
+      config: harness.config,
+      repository: harness.repository,
+      authenticator: { authenticate: () => Promise.resolve(undefined) },
+      challenges: harness.dynamicChallenges,
+    });
+    const response = await challengeServer.handle({
+      method: 'GET',
+      path: '/scep/issuing/certsrv/mscep_admin/',
+      headers: {},
+      body: new Uint8Array(),
+    });
+    expect(response?.status).toBe(404);
   });
 });
 

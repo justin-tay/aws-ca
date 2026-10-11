@@ -29,6 +29,8 @@ export const keys = {
     sk: `OPS#${String(sequence).padStart(10, '0')}`,
   }),
   operationalPrefix: 'OPS#',
+  scepChallenge: (label: string, hash: string) => ({ pk: `CA#${label}`, sk: `SCEPOTP#${hash}` }),
+  scepChallengePrefix: 'SCEPOTP#',
   owner: (owner: string, subject: string, serial: string) => ({
     ownerPk: `OWNER#${enc(owner)}`,
     // The subject is encoded so a '#' inside it cannot make one subject a prefix of another.

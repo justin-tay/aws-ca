@@ -15,13 +15,13 @@ devices against the URLs it prints.
 
 ## What you get
 
-| Protocol  | Used for                                        | Authentication                                                   |
-| --------- | ----------------------------------------------- | ---------------------------------------------------------------- |
-| EST       | client and server certificates, renewal         | Cognito user and password (Basic), or the old certificate (mTLS) |
-| SCEP      | client certificates (Windows MDM, network gear) | a shared challenge password, or the old certificate              |
-| OCSP      | revocation status, GET and POST                 | none (public)                                                    |
-| CRL       | revocation list per CA                          | none (public)                                                    |
-| `/revoke` | revoke a certificate                            | the certificate's owner, or a member of the `est-admin` group    |
+| Protocol  | Used for                                        | Authentication                                                     |
+| --------- | ----------------------------------------------- | ------------------------------------------------------------------ |
+| EST       | client and server certificates, renewal         | Cognito user and password (Basic), or the old certificate (mTLS)   |
+| SCEP      | client certificates (Windows MDM, network gear) | a static or single-use (dynamic) challenge, or the old certificate |
+| OCSP      | revocation status, GET and POST                 | none (public)                                                      |
+| CRL       | revocation list per CA                          | none (public)                                                      |
+| `/revoke` | revoke a certificate                            | the certificate's owner, or a member of the `est-admin` group      |
 
 Certificates are ECDSA P-256 by default (RSA and P-384/P-521 are configurable).
 Server certificates are limited to the domain suffixes you list.
@@ -55,7 +55,8 @@ ten more per distribution. It prints:
 | `RootCaFingerprint`                           | SHA-256 of the root certificate. Compare it before trusting the root |
 | `EstEndpoint`                                 | EST base URL                                                         |
 | `ScepEndpoint`                                | SCEP URL for the first issuing CA                                    |
-| `ScepChallengeParameter`                      | the SSM parameter that holds the SCEP challenge                      |
+| `ScepChallengeParameter`                      | the SSM parameter that holds the static SCEP challenge               |
+| `ScepChallengeUrl`                            | where an MDM fetches a single-use SCEP challenge (dynamic mode)      |
 | `RevocationBaseUrl`                           | where CRL and OCSP are served (plain HTTP), with `cloudfront`        |
 | `UserPoolId`, `UserPoolClientId`, `TableName` | what you need to manage users and look at data                       |
 
@@ -174,9 +175,44 @@ thousands of requests). Prices are approximate; check the AWS pricing pages.
   field name (authorization, passwords, tokens, keys, CSRs and PEM).
 - **Revocation is checked where it matters.** OCSP and the CRL come from the
   table; a certificate used for mTLS renewal is looked up and refused if revoked.
-- **The shared SCEP challenge is a shared secret.** Anyone who holds it can obtain
+- **The static SCEP challenge is a shared secret.** Anyone who holds it can obtain
   a certificate for any name. Treat it like a password, rotate it
-  ([docs/operations.md](docs/operations.md)), and prefer EST where you can.
+  ([docs/operations.md](docs/operations.md)), and prefer EST where you can. Set
+  `scep.challenge: 'dynamic'` for single-use, expiring challenges that an MDM
+  requests per device (see [SCEP challenges](#scep-challenges)).
+
+## SCEP challenges
+
+`scep.challenge` chooses how a SCEP client proves it may enroll:
+
+| Mode      | Behaviour                                                                                                |
+| --------- | -------------------------------------------------------------------------------------------------------- |
+| `static`  | (default) One shared secret in `<prefix>/internal/scep-challenge`. Simple; anyone holding it can enroll. |
+| `dynamic` | Single-use challenges that expire (60 minutes by default), issued on request. No shared secret exists.   |
+| `both`    | Either is accepted; the static secret is not consumed.                                                   |
+
+Dynamic challenges are requested by a Cognito user in the `scep-admin` group
+(`groups.scep`; `est-admin` also qualifies), with Basic authentication:
+
+- **NDES-style page** for MDMs such as Workspace ONE that fetch an NDES one-time
+  password: `GET /scep/<ca>/certsrv/mscep_admin/` (also `/certsrv/mscep_admin/` when
+  exactly one CA issues client certificates). The page is NDES's, in UTF-16 with a
+  byte order mark, with a 16-digit hex password. Each fetch creates a new
+  challenge. PSCertificateEnrollment's `Get-NDESOTP -Suffix
+'scep/issuing/certsrv/mscep_admin' -Credential $c -BasicAuthentication` reads it.
+- **JSON** for scripts: `POST /ca/<ca>/scep/challenge` with an optional
+  `{"commonName": "device-1"}`; the reply is `{challenge, expiresAt, caLabel, commonName?}`.
+  A challenge bound to a common name works only for a request for that name.
+
+A challenge is used up by the request that issues a certificate, and not by one
+the policy refuses. Only its SHA-256 is stored. At most
+`scep.dynamicChallenge.maxOutstanding` (100) unexpired challenges exist per CA;
+more are refused with 429. Renewal with an issued certificate needs no challenge.
+
+```ts
+scep: { challenge: 'dynamic', dynamicChallenge: { validityMinutes: 60, maxOutstanding: 100, lengthBytes: 8 } },
+groups: { scep: 'scep-admin' },
+```
 
 ## Commands
 

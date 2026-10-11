@@ -1,5 +1,6 @@
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
+  DeleteCommand,
   DynamoDBDocumentClient,
   GetCommand,
   PutCommand,
@@ -18,6 +19,7 @@ import {
   type CertificateRecord,
   type OperationalCertificateRecord,
   type Page,
+  type ScepChallengeRecord,
 } from './types';
 
 type Item = Record<string, unknown>;
@@ -151,6 +153,33 @@ function operationalFromItem(item: Item): OperationalCertificateRecord {
     keyRef: item.keyRef as KeyRef,
     notAfter: new Date(item.notAfter as string),
     active: item.active as boolean,
+  };
+}
+
+function challengeToItem(record: ScepChallengeRecord): Item {
+  return {
+    ...keys.scepChallenge(record.caLabel, record.hash),
+    type: 'scep-challenge',
+    caLabel: record.caLabel,
+    hash: record.hash,
+    ...(record.commonName === undefined ? {} : { commonName: record.commonName }),
+    createdBy: record.createdBy,
+    createdAt: iso(record.createdAt),
+    expiresAt: iso(record.expiresAt),
+    expiresAtEpoch: epoch(record.expiresAt),
+    // DynamoDB removes it some time after it has expired; `expiresAtEpoch` is what is enforced.
+    [TABLE_SCHEMA.ttlAttribute]: epoch(record.expiresAt) + 60,
+  };
+}
+
+function challengeFromItem(item: Item): ScepChallengeRecord {
+  return {
+    caLabel: item.caLabel as string,
+    hash: item.hash as string,
+    ...(item.commonName === undefined ? {} : { commonName: item.commonName as string }),
+    createdBy: item.createdBy as string,
+    createdAt: new Date(item.createdAt as string),
+    expiresAt: new Date(item.expiresAt as string),
   };
 }
 
@@ -412,6 +441,68 @@ export class DynamoCaRepository implements CaRepository {
     } catch (error) {
       if (isConditionFailure(error)) {
         throw new RepositoryError('not-found', `No operational certificate ${sequence}.`, { cause: error });
+      }
+      throw error;
+    }
+  }
+
+  async putScepChallenge(
+    record: ScepChallengeRecord,
+    options: { maxOutstanding: number; now: Date },
+  ): Promise<void> {
+    // Expired items linger until DynamoDB's TTL sweeps them, so they are filtered out of the count.
+    let outstanding = 0;
+    let startKey: Record<string, unknown> | undefined;
+    do {
+      // oxlint-disable-next-line no-await-in-loop
+      const response = await this.client.send(
+        new QueryCommand({
+          TableName: this.tableName,
+          KeyConditionExpression: 'pk = :pk AND begins_with(sk, :prefix)',
+          FilterExpression: 'expiresAtEpoch > :now',
+          ExpressionAttributeValues: {
+            ':pk': keys.ca(record.caLabel).pk,
+            ':prefix': keys.scepChallengePrefix,
+            ':now': epoch(options.now),
+          },
+          Select: 'COUNT',
+          ConsistentRead: true,
+          ...(startKey === undefined ? {} : { ExclusiveStartKey: startKey }),
+        }),
+      );
+      outstanding += response.Count ?? 0;
+      startKey = response.LastEvaluatedKey;
+    } while (startKey !== undefined);
+    if (outstanding >= options.maxOutstanding) {
+      throw new RepositoryError(
+        'limit-reached',
+        `Too many SCEP challenges are outstanding for ${record.caLabel}.`,
+      );
+    }
+    await this.putNew(challengeToItem(record), 'The SCEP challenge');
+  }
+
+  async consumeScepChallenge(
+    caLabel: string,
+    hash: string,
+    options: { commonName: string; now: Date },
+  ): Promise<ScepChallengeRecord | undefined> {
+    try {
+      const response = await this.client.send(
+        new DeleteCommand({
+          TableName: this.tableName,
+          Key: keys.scepChallenge(caLabel, hash),
+          ConditionExpression:
+            'attribute_exists(pk) AND expiresAtEpoch > :now AND ' +
+            '(attribute_not_exists(commonName) OR commonName = :commonName)',
+          ExpressionAttributeValues: { ':now': epoch(options.now), ':commonName': options.commonName },
+          ReturnValues: 'ALL_OLD',
+        }),
+      );
+      return response.Attributes ? challengeFromItem(response.Attributes) : undefined;
+    } catch (error) {
+      if (isConditionFailure(error)) {
+        return undefined;
       }
       throw error;
     }

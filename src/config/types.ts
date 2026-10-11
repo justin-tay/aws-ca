@@ -15,6 +15,8 @@ export type RootKeyHandling = 'retain' | 'offline';
 export type OcspSigning = 'operational' | 'kms' | 'ca';
 export type CognitoTier = 'lite' | 'essentials';
 export type EndpointType = 'regional' | 'private';
+/** `static`: one shared secret. `dynamic`: single-use challenges on request (NDES: OTP). */
+export type ScepChallengeMode = 'static' | 'dynamic' | 'both';
 
 export interface KeyStoreInput {
   backend?: KeyBackend;
@@ -81,12 +83,19 @@ export interface AwsCaConfigInput {
   /** Default: one `issuing` CA that issues both profiles. */
   subordinateCas?: SubordinateCaInput[];
   operationalKey?: OperationalKeyInput;
-  scep?: { enabled?: boolean };
+  scep?: {
+    enabled?: boolean;
+    /** Default `static`. */
+    challenge?: ScepChallengeMode;
+    /** Applies to `dynamic` and `both`. */
+    dynamicChallenge?: { validityMinutes?: number; maxOutstanding?: number; lengthBytes?: number };
+  };
   ocsp?: { enabled?: boolean; signing?: OcspSigning; maxAgeSeconds?: number; nextUpdateHours?: number };
   crl?: { nextUpdateDays?: number };
   lifetimes?: { clientDays?: number; serverDays?: number };
   policy?: { allowedDomainSuffixes?: string[]; subjectTemplate?: string };
-  groups?: { client?: string; server?: string; admin?: string };
+  /** `scep` is the group that may request dynamic SCEP challenges (default `scep-admin`). */
+  groups?: { client?: string; server?: string; admin?: string; scep?: string };
   auth?: { cognitoTier?: CognitoTier };
   frontDoor?: FrontDoorInput;
 }
@@ -140,12 +149,16 @@ export interface ResolvedConfig {
   subordinateCas: ResolvedSubordinateCa[];
   /** Absent when neither SCEP nor OCSP-with-operational-key needs it. */
   operationalKey?: ResolvedOperationalKey;
-  scep: { enabled: boolean };
+  scep: {
+    enabled: boolean;
+    challenge: ScepChallengeMode;
+    dynamicChallenge: { validityMinutes: number; maxOutstanding: number; lengthBytes: number };
+  };
   ocsp: { enabled: boolean; signing: OcspSigning; maxAgeSeconds: number; nextUpdateHours: number };
   crl: { nextUpdateDays: number };
   lifetimes: { clientDays: number; serverDays: number };
   policy: { allowedDomainSuffixes: string[]; subjectTemplate: string };
-  groups: { client: string; server: string; admin: string };
+  groups: { client: string; server: string; admin: string; scep: string };
   auth: { cognitoTier: CognitoTier };
   frontDoor: ResolvedFrontDoor;
   /** Non-fatal findings. The app prints them as synth warnings. */

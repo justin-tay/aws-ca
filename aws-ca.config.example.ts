@@ -11,6 +11,10 @@ export default defineConfig({
   rootCa: { keyStore: { backend: 'parameter', protection: 'app-encrypted' } },
   subordinateCas: [{ label: 'issuing', keyStore: { backend: 'parameter', protection: 'app-encrypted' } }],
 
+  // SCEP challenge: 'static' (one shared secret, default), 'dynamic' (single-use, requested by an
+  // MDM from /scep/<ca>/certsrv/mscep_admin/) or 'both'. Dynamic needs a user in groups.scep.
+  // scep: { challenge: 'dynamic', dynamicChallenge: { validityMinutes: 60, maxOutstanding: 100 } },
+
   // 'cloudfront' (default), 'function-url', 'http-api' or 'rest-api'.
   frontDoor: { type: 'cloudfront' },
 });

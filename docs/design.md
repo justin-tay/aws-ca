@@ -473,16 +473,52 @@ Runtime is Node 24 on arm64.
   operations is unclear, and the repository fake plus real-AWS integration
   covers it.
 
+## Dynamic SCEP challenges
+
+`scep.challenge` is `static` (the shared SSM secret, default), `dynamic` or `both`.
+The words are the MDM vocabulary (Workspace ONE, Intune, Cisco: static and dynamic
+challenge); NDES calls a dynamic challenge a one-time password.
+
+- **What a challenge is.** `lengthBytes` random bytes (8 by default, NDES's
+  16 hex digits), shown in uppercase hex. Single use; valid
+  `validityMinutes` (60, NDES's `PasswordValidity`); at most `maxOutstanding`
+  (100; NDES's `PasswordMax` is 5) unexpired per CA. The cap is a flood guard,
+  counted before the write, so concurrent requests can exceed it by a few.
+- **Storage.** Item `pk=CA#<ca>, sk=SCEPOTP#<sha256>` with `expiresAtEpoch`
+  (enforced in the condition) and the table's `ttl` (cleanup only, DynamoDB
+  deletes late). Only the hash is stored, so a table read yields nothing usable.
+  Optional `commonName` binds it to one device.
+- **Consume.** One conditional `DeleteItem` (item exists, not expired, unbound or
+  bound to this CN) returning the old item: exactly one of any number of
+  concurrent requests wins, and a mismatch or an expiry consumes nothing. It runs
+  in `ScepServer.enroll` after the request has passed the issuance policy and
+  just before issuing; a failure after that point still burns the challenge.
+  With `both`, the static secret is compared first and is never consumed.
+- **Unbound by default.** An NDES-style request carries no subject, because the
+  MDM asks before the device has a key; the CN comes from the CSR. Binding is
+  available through the JSON endpoint only.
+- **Who may ask.** Basic auth through Cognito, group `groups.scep` (default
+  `scep-admin`, created only when a dynamic mode is on) or `groups.admin`. A
+  service account for the MDM needs only the former, and cannot revoke.
+- **Endpoints.** `GET /scep/<ca>/certsrv/mscep_admin/` and, when exactly one CA
+  issues the client profile, `GET /certsrv/mscep_admin/`: NDES's HTML page, which
+  MDMs scrape. It is served as UTF-16LE with a byte order mark and
+  `Cache-Control: no-store`, because PSCertificateEnrollment's `Get-NDESOTP`
+  decodes the body as UTF-16 and takes the first run of `PasswordLength * 2`
+  (default 16) hex digits; so no other such run precedes the password (the
+  thumbprint is in groups of eight). `POST /ca/<ca>/scep/challenge` returns JSON.
+  A GET that mints a challenge is acceptable here only because it is
+  authenticated, never cached and capped.
+- **Failure behavior.** A wrong, used, expired, unknown or differently bound
+  challenge is the same `badRequest`; the log line carries the CA and reason
+  class, never the value.
+- **Unverified.** Workspace ONE's own parsing of the page. The Windows tool is
+  the verified client (see `docs/windows-enrollment.md`).
+
 ## Open items
 
-The implementation is complete through slice 11. What remains is deliberate:
+The implementation is complete through slice 12. What remains is deliberate:
 
-- **One-time SCEP challenges (deferred).** A CA-issued, single-use, CN-bound
-  challenge with a TTL, requested by an `est-admin` over an endpoint, would remove
-  the weakness of the shared challenge. If built, also serve an NDES-shaped page
-  at `/certsrv/mscep_admin/` (a 32 hex character password in the body, as
-  PSCertificateEnrollment's `Get-NDESOTP` scrapes it) behind Cognito Basic, so
-  NDES-style tooling works unchanged. It needs an atomic consume in the table.
 - **MDM challenge validators (not planned).** Intune validates a challenge by
   calling Microsoft's SCEP API with an Entra application credential; Jamf and
   Workspace ONE have equivalents. A validator interface would be small, but each

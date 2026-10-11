@@ -143,7 +143,7 @@ export class AwsCaStack extends Stack {
       ...keyAccessStatements(this, config, [...subLabels, ...delegatedLabels], 'runtime'),
       ...rootKeyDenyStatements(this, config),
       ...(encryptionKeyArns.length > 0 ? [customerManagedKeyStatement(encryptionKeyArns, 'runtime')] : []),
-      ...(config.scep.enabled
+      ...(config.scep.enabled && config.scep.challenge !== 'dynamic'
         ? [
             new PolicyStatement({
               sid: 'ScepChallenge',
@@ -209,7 +209,11 @@ export class AwsCaStack extends Stack {
       deletionProtection: config.removalPolicy === 'retain',
       removalPolicy: removal,
     });
-    for (const group of new Set([config.groups.client, config.groups.server, config.groups.admin])) {
+    const groupNames = [config.groups.client, config.groups.server, config.groups.admin];
+    if (config.scep.enabled && config.scep.challenge !== 'static') {
+      groupNames.push(config.groups.scep);
+    }
+    for (const group of new Set(groupNames)) {
       this.userPool.addGroup(`Group${group}`, { groupName: group });
     }
     this.userPoolClient = this.userPool.addClient('EstClient', {
@@ -426,10 +430,20 @@ export class AwsCaStack extends Stack {
         description: 'SCEP URL for the first issuing CA',
         value: `${publicBase}/scep/${config.subordinateCas[0].label}/pkiclient.exe`,
       });
-      new CfnOutput(this, 'ScepChallengeParameter', {
-        description: 'The parameter that holds the SCEP challenge password',
-        value: this.bootstrap.getAttString('ScepChallengeParameter'),
-      });
+      if (config.scep.challenge !== 'dynamic') {
+        new CfnOutput(this, 'ScepChallengeParameter', {
+          description: 'The parameter that holds the static SCEP challenge password',
+          value: this.bootstrap.getAttString('ScepChallengeParameter'),
+        });
+      }
+      if (config.scep.challenge !== 'static') {
+        new CfnOutput(this, 'ScepChallengeUrl', {
+          description:
+            'Where an MDM (NDES-style admin URL, basic auth, group ' +
+            `${config.groups.scep}) fetches a one-time SCEP challenge`,
+          value: `${publicBase}/scep/${config.subordinateCas[0].label}/certsrv/mscep_admin/`,
+        });
+      }
     }
     new CfnOutput(this, 'UserPoolId', { value: this.userPool.userPoolId });
     new CfnOutput(this, 'UserPoolClientId', { value: this.userPoolClient.userPoolClientId });

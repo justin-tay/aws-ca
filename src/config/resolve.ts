@@ -18,6 +18,7 @@ import type {
   ResolvedSubordinateCa,
   RootKeyHandling,
   RsaModulusLength,
+  ScepChallengeMode,
 } from './types';
 
 type Rec = Record<string, unknown>;
@@ -34,6 +35,7 @@ const PROFILES = ['client', 'server'] as const satisfies readonly Profile[];
 const ROOT_KEY_HANDLING = ['retain', 'offline'] as const satisfies readonly RootKeyHandling[];
 const OCSP_SIGNING = ['operational', 'kms', 'ca'] as const satisfies readonly OcspSigning[];
 const COGNITO_TIERS = ['lite', 'essentials'] as const satisfies readonly CognitoTier[];
+const SCEP_CHALLENGES = ['static', 'dynamic', 'both'] as const satisfies readonly ScepChallengeMode[];
 const ENDPOINT_TYPES = ['regional', 'private'] as const satisfies readonly EndpointType[];
 const REMOVAL_POLICIES = ['retain', 'destroy'] as const;
 const FRONT_DOORS = ['function-url', 'cloudfront', 'http-api', 'rest-api'] as const;
@@ -547,15 +549,16 @@ function resolveSubjectTemplate(c: Collector, value: unknown): string {
 }
 
 function resolveGroups(c: Collector, value: unknown): ResolvedConfig['groups'] {
-  const rec = section(c, value, 'groups', ['client', 'server', 'admin']);
+  const rec = section(c, value, 'groups', ['client', 'server', 'admin', 'scep']);
   const what = 'a group name without whitespace';
   const names = {
     client: text(c, rec.client, 'groups.client', GROUP_NAME, what, 'est-client'),
     server: text(c, rec.server, 'groups.server', GROUP_NAME, what, 'est-server'),
     admin: text(c, rec.admin, 'groups.admin', GROUP_NAME, what, 'est-admin'),
+    scep: text(c, rec.scep, 'groups.scep', GROUP_NAME, what, 'scep-admin'),
   };
   const seen = new Map<string, string>();
-  for (const key of ['client', 'server', 'admin'] as const) {
+  for (const key of ['client', 'server', 'admin', 'scep'] as const) {
     const first = seen.get(names[key]);
     if (first === undefined) {
       seen.set(names[key], key);
@@ -611,8 +614,33 @@ export function resolveConfig(input: AwsCaConfigInput = {}): ResolvedConfig {
   const issuing = (profile: Profile): ResolvedSubordinateCa[] =>
     subordinateCas.filter((ca) => ca.profiles.includes(profile));
 
-  const scepRec = section(c, top.scep, 'scep', ['enabled']);
+  const scepRec = section(c, top.scep, 'scep', ['enabled', 'challenge', 'dynamicChallenge']);
   const scepEnabled = flag(c, scepRec.enabled, 'scep.enabled', true);
+  const scepChallenge = pick(c, scepRec.challenge, SCEP_CHALLENGES, 'scep.challenge', 'static');
+  const dynamicRec = section(c, scepRec.dynamicChallenge, 'scep.dynamicChallenge', [
+    'validityMinutes',
+    'maxOutstanding',
+    'lengthBytes',
+  ]);
+  const dynamicChallenge = {
+    validityMinutes: integer(
+      c,
+      dynamicRec.validityMinutes,
+      'scep.dynamicChallenge.validityMinutes',
+      1,
+      1440,
+      60,
+    ),
+    maxOutstanding: integer(
+      c,
+      dynamicRec.maxOutstanding,
+      'scep.dynamicChallenge.maxOutstanding',
+      1,
+      10000,
+      100,
+    ),
+    lengthBytes: integer(c, dynamicRec.lengthBytes, 'scep.dynamicChallenge.lengthBytes', 8, 32, 8),
+  };
   if (scepEnabled && issuing('client').length === 0) {
     c.add('scep.enabled', 'SCEP issues the "client" profile, but no subordinate CA issues it.');
   }
@@ -688,7 +716,7 @@ export function resolveConfig(input: AwsCaConfigInput = {}): ResolvedConfig {
     rootCa,
     subordinateCas,
     ...(operationalKey ? { operationalKey } : {}),
-    scep: { enabled: scepEnabled },
+    scep: { enabled: scepEnabled, challenge: scepChallenge, dynamicChallenge },
     ocsp: { enabled: ocspEnabled, signing: ocspSigning, maxAgeSeconds, nextUpdateHours },
     crl,
     lifetimes,
