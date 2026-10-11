@@ -1,4 +1,6 @@
 import { X509Certificate } from '@peculiar/x509';
+import { BODY_LIMITS, binary, mediaType } from '../http/helpers';
+import { CA_LABEL_SEGMENT } from '../config/label';
 import type { Signer } from '../ca';
 import type { ResolvedConfig } from '../config';
 import { text, type HttpRequest, type HttpResponse } from '../http';
@@ -17,7 +19,6 @@ import {
 } from './codec';
 
 const HOUR_MS = 60 * 60 * 1000;
-const MAX_REQUEST_BYTES = 8 * 1024;
 const MAX_CERTIFICATES = 8;
 
 export interface OcspDependencies {
@@ -37,16 +38,14 @@ interface Signing {
   includeCertificate: boolean;
 }
 
-const ocspResponse = (der: Uint8Array, headers: Record<string, string>): HttpResponse => ({
-  status: 200,
-  headers: { 'content-type': 'application/ocsp-response', ...headers },
-  body: Buffer.from(der).toString('base64'),
-  isBase64Encoded: true,
-});
+const ocspResponse = (der: Uint8Array, headers: Record<string, string>): HttpResponse =>
+  binary(der, 'application/ocsp-response', headers);
+
+const OCSP_PATH = new RegExp(`^/ocsp/(${CA_LABEL_SEGMENT})(?:/(.+))?$`);
 
 /** `/ocsp/<ca>` for POST and `/ocsp/<ca>/<base64 request>` for GET (RFC 6960 A.1, RFC 5019). */
 function route(path: string): { caLabel: string; encoded?: string } | undefined {
-  const match = /^\/ocsp\/([a-z0-9-]+)(?:\/(.+))?$/.exec(path);
+  const match = OCSP_PATH.exec(path);
   return match ? { caLabel: match[1], ...(match[2] === undefined ? {} : { encoded: match[2] }) } : undefined;
 }
 
@@ -84,7 +83,7 @@ export class OcspServer {
     try {
       let der: Uint8Array | undefined;
       if (request.method === 'POST' && target.encoded === undefined) {
-        const contentType = (request.headers['content-type'] ?? '').split(';')[0].trim().toLowerCase();
+        const contentType = mediaType(request);
         if (contentType !== 'application/ocsp-request') {
           return text(415, 'The request must be application/ocsp-request.');
         }
@@ -94,7 +93,7 @@ export class OcspServer {
       } else {
         return text(405, 'Use GET with the request in the path, or POST.', { allow: 'GET, POST' });
       }
-      if (!der || der.length === 0 || der.length > MAX_REQUEST_BYTES) {
+      if (!der || der.length === 0 || der.length > BODY_LIMITS.ocspRequest) {
         return this.error(OCSPResponseStatus.malformedRequest);
       }
       return await this.answer(target.caLabel, der, request.method === 'GET');

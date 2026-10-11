@@ -1,4 +1,4 @@
-import { timingSafeEqual } from 'node:crypto';
+import { safeEqual } from './helpers';
 
 /**
  * Whether the request came through our CloudFront distribution, which adds a secret header the
@@ -14,7 +14,5 @@ export function originIsVerified(headers: Record<string, string>, expected: stri
   if (given === undefined) {
     return false;
   }
-  const a = Buffer.from(given);
-  const b = Buffer.from(expected);
-  return a.length === b.length && timingSafeEqual(a, b);
+  return safeEqual(given, expected);
 }

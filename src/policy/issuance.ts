@@ -53,6 +53,34 @@ export function escapeDnValue(value: string): string {
   return characters.join('');
 }
 
+/**
+ * What is wrong with a common name a request or an administrator supplies, or `undefined`: 1 to 64
+ * characters, none of them a control character. One place, so a challenge bound to a name is always
+ * usable by a request for that name.
+ */
+export function commonNameProblem(value: string): string | undefined {
+  if (value === '' || value.length > 64) {
+    return 'The request must have exactly one subject CN of 1 to 64 characters.';
+  }
+  if (
+    Array.from(value).some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127)
+  ) {
+    return 'The request subject CN contains control characters.';
+  }
+  return undefined;
+}
+
+function findCa(
+  config: Pick<ResolvedConfig, 'subordinateCas'>,
+  label: string,
+): ResolvedConfig['subordinateCas'][number] {
+  const ca = config.subordinateCas.find((candidate) => candidate.label === label);
+  if (!ca) {
+    throw new PolicyError(`There is no CA "${label}".`);
+  }
+  return ca;
+}
+
 function commonNamesOf(subject: string): string[] {
   const names: string[] = [];
   for (const entry of new Name(subject).toJSON()) {
@@ -84,22 +112,15 @@ export function decideScepIssuance(request: {
   caLabel: string;
   config: Pick<ResolvedConfig, 'subordinateCas' | 'policy' | 'lifetimes'>;
 }): IssuanceDecision & { commonName: string } {
-  const ca = request.config.subordinateCas.find((candidate) => candidate.label === request.caLabel);
-  if (!ca) {
-    throw new PolicyError(`There is no CA "${request.caLabel}".`);
-  }
+  const ca = findCa(request.config, request.caLabel);
   if (!ca.profiles.includes('client')) {
     throw new PolicyError(`CA "${ca.label}" does not issue client certificates.`);
   }
   const commonNames = commonNamesOf(request.csr.subject);
   const commonName = commonNames[0]?.trim() ?? '';
-  if (commonNames.length !== 1 || commonName === '' || commonName.length > 64) {
-    throw new PolicyError('The request must have exactly one subject CN of 1 to 64 characters.');
-  }
-  if (
-    commonName.split('').some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127)
-  ) {
-    throw new PolicyError('The request subject CN contains control characters.');
+  const problem = commonNames.length === 1 ? commonNameProblem(commonName) : commonNameProblem('');
+  if (problem !== undefined) {
+    throw new PolicyError(problem);
   }
   return {
     profile: 'client',
@@ -118,10 +139,7 @@ export function decideScepIssuance(request: {
  */
 export function decideIssuance(request: IssuanceRequest): IssuanceDecision {
   const { csr, username, groups, config } = request;
-  const ca = config.subordinateCas.find((candidate) => candidate.label === request.caLabel);
-  if (!ca) {
-    throw new PolicyError(`There is no CA "${request.caLabel}".`);
-  }
+  const ca = findCa(config, request.caLabel);
   const wantsServer = csr.requestedNames.some((name) => name.type === 'dns' || name.type === 'ip');
   const profile: Profile = wantsServer ? 'server' : 'client';
 

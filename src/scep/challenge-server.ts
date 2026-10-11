@@ -1,4 +1,7 @@
 import { createHash } from 'node:crypto';
+import { CA_LABEL_SEGMENT } from '../config/label';
+import { json, readJsonBody } from '../http/helpers';
+import { commonNameProblem } from '../policy';
 import { X509Certificate } from '@peculiar/x509';
 import { authErrorResponse, authenticateRequest, isResponse, type Authenticator } from '../auth';
 import type { ResolvedConfig } from '../config';
@@ -6,8 +9,6 @@ import { text, type HttpRequest, type HttpResponse } from '../http';
 import { errorFields, silentLogger, type Logger } from '../log';
 import { RepositoryError, type CaRepository } from '../repo';
 import type { DynamicChallenges } from './dynamic';
-
-const MAX_BODY_BYTES = 1024;
 
 export interface ScepChallengeDependencies {
   config: Pick<ResolvedConfig, 'subordinateCas' | 'groups' | 'scep'>;
@@ -17,6 +18,9 @@ export interface ScepChallengeDependencies {
   logger?: Logger;
 }
 
+const PAGE_PATH = new RegExp(`^(?:/scep/(${CA_LABEL_SEGMENT}))?/certsrv/mscep_admin/?$`);
+const API_PATH = new RegExp(`^/ca/(${CA_LABEL_SEGMENT})/scep/challenge$`);
+
 type Route = { kind: 'page'; caLabel?: string } | { kind: 'json'; caLabel: string };
 
 /**
@@ -24,12 +28,12 @@ type Route = { kind: 'page'; caLabel?: string } | { kind: 'json'; caLabel: strin
  * such as Workspace ONE fetch a challenge from; `/ca/<ca>/scep/challenge` is the same for scripts.
  */
 export function routeOf(path: string): Route | undefined {
-  const page = /^(?:\/scep\/([a-z0-9-]+))?\/certsrv\/mscep_admin\/?$/.exec(path);
+  const page = PAGE_PATH.exec(path);
   if (page) {
     return page[1] === undefined ? { kind: 'page' } : { kind: 'page', caLabel: page[1] };
   }
-  const json = /^\/ca\/([a-z0-9-]+)\/scep\/challenge$/.exec(path);
-  return json ? { kind: 'json', caLabel: json[1] } : undefined;
+  const api = API_PATH.exec(path);
+  return api ? { kind: 'json', caLabel: api[1] } : undefined;
 }
 
 const NO_STORE = { 'cache-control': 'no-store' };
@@ -173,34 +177,18 @@ export class ScepChallengeServer {
   }
 
   private async json(request: HttpRequest, caLabel: string, username: string): Promise<HttpResponse> {
+    const body = readJsonBody(request, { required: false });
+    if ('response' in body) {
+      return body.response;
+    }
     let commonName: string | undefined;
-    if (request.body.length > 0) {
-      const contentType = (request.headers['content-type'] ?? '').split(';')[0].trim().toLowerCase();
-      if (contentType !== 'application/json') {
-        return text(415, 'The request must be application/json.');
+    const requested = body.value?.commonName;
+    if (requested !== undefined) {
+      // The same bounds a SCEP request's CN must meet, so a challenge that is bound is usable.
+      if (typeof requested !== 'string' || commonNameProblem(requested.trim()) !== undefined) {
+        return text(400, 'commonName must be 1 to 64 characters without control characters.');
       }
-      if (request.body.length > MAX_BODY_BYTES) {
-        return text(400, 'The request body is too large.');
-      }
-      let value: unknown;
-      try {
-        value = (JSON.parse(Buffer.from(request.body).toString('utf8')) as Record<string, unknown>)
-          .commonName;
-      } catch {
-        return text(400, 'The request body is not valid JSON.');
-      }
-      if (value !== undefined) {
-        // The same bounds a SCEP request's CN must meet, so a challenge that is bound is usable.
-        if (
-          typeof value !== 'string' ||
-          value.trim() === '' ||
-          value.length > 64 ||
-          Array.from(value).some((c) => c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127)
-        ) {
-          return text(400, 'commonName must be 1 to 64 characters without control characters.');
-        }
-        commonName = value.trim();
-      }
+      commonName = requested.trim();
     }
     const { challenge, expiresAt } = await this.deps.challenges.issue(caLabel, {
       createdBy: username,
@@ -213,14 +201,16 @@ export class ScepChallengeServer {
       'aws_ca.challenge.bound': commonName !== undefined,
     });
     return {
-      status: 201,
-      headers: { 'content-type': 'application/json', ...NO_STORE },
-      body: JSON.stringify({
-        challenge,
-        expiresAt: expiresAt.toISOString(),
-        caLabel,
-        ...(commonName === undefined ? {} : { commonName }),
-      }),
+      ...json(
+        201,
+        {
+          challenge,
+          expiresAt: expiresAt.toISOString(),
+          caLabel,
+          ...(commonName === undefined ? {} : { commonName }),
+        },
+        NO_STORE,
+      ),
     };
   }
 }

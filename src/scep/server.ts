@@ -1,11 +1,13 @@
-import { timingSafeEqual } from 'node:crypto';
 import { X509Certificate } from '@peculiar/x509';
+import { CA_LABEL_SEGMENT } from '../config/label';
+import { caChain } from '../ca/chain';
+import { BODY_LIMITS, binary, safeEqual } from '../http/helpers';
 import { CsrError, canonicalSerial, parseCsr } from '../ca';
 import type { ResolvedConfig } from '../config';
 import { text, type HttpRequest, type HttpResponse } from '../http';
 import type { CertificateIssuer } from '../issuance';
 import { errorFields, silentLogger, type Logger } from '../log';
-import type { DecryptingResponder, OperationalKeyService } from '../operational';
+import type { OperationalKeyService } from '../operational';
 import { PolicyError, decideScepIssuance } from '../policy';
 import type { DynamicChallenges } from './dynamic';
 import type { CaRecord, CaRepository } from '../repo';
@@ -26,7 +28,6 @@ import {
 const DAY_MS = 24 * 60 * 60 * 1000;
 /** A message signed more than this long ago, or in the future, is refused. */
 const MAX_CLOCK_DIFFERENCE_MS = DAY_MS;
-const MAX_MESSAGE_BYTES = 64 * 1024;
 
 /** The shared secret a client puts in its request to be issued a certificate. */
 export interface ChallengeProvider {
@@ -46,26 +47,15 @@ export interface ScepDependencies {
   now?: () => Date;
 }
 
+const SCEP_PATH = new RegExp(`^/scep(?:/(${CA_LABEL_SEGMENT}))?(?:/pkiclient\\.exe)?$`);
+
 /** `/scep/<ca>` or `/scep/<ca>/pkiclient.exe`; the CA label may be left out. */
 export function routeOf(path: string): { caLabel?: string } | undefined {
-  const match = /^\/scep(?:\/([a-z0-9-]+))?(?:\/pkiclient\.exe)?$/.exec(path);
+  const match = SCEP_PATH.exec(path);
   if (!match) {
     return undefined;
   }
   return match[1] === undefined ? {} : { caLabel: match[1] };
-}
-
-const binary = (der: Uint8Array, contentType: string): HttpResponse => ({
-  status: 200,
-  headers: { 'content-type': contentType },
-  body: Buffer.from(der).toString('base64'),
-  isBase64Encoded: true,
-});
-
-function sameSecret(given: string, expected: string): boolean {
-  const a = Buffer.from(given);
-  const b = Buffer.from(expected);
-  return a.length === b.length && timingSafeEqual(a, b);
 }
 
 /**
@@ -141,22 +131,7 @@ export class ScepServer {
       message =
         encoded === null ? undefined : new Uint8Array(Buffer.from(encoded.replaceAll(' ', '+'), 'base64'));
     }
-    return message && message.length > 0 && message.length <= MAX_MESSAGE_BYTES ? message : undefined;
-  }
-
-  private async chainOf(ca: CaRecord): Promise<X509Certificate[]> {
-    const chain = [new X509Certificate(ca.certificatePem)];
-    let parent = ca.parent;
-    while (parent !== undefined) {
-      // oxlint-disable-next-line no-await-in-loop
-      const record = await this.deps.repository.getCa(parent);
-      if (!record) {
-        break;
-      }
-      chain.push(new X509Certificate(record.certificatePem));
-      parent = record.parent;
-    }
-    return chain;
+    return message && message.length > 0 && message.length <= BODY_LIMITS.scepMessage ? message : undefined;
   }
 
   /**
@@ -166,12 +141,18 @@ export class ScepServer {
    */
   private async caCert(ca: CaRecord): Promise<HttpResponse> {
     const responder = await this.deps.operational.decryptingResponder(ca.label);
-    const certificates = [...(responder ? [responder.certificate] : []), ...(await this.chainOf(ca))];
+    const certificates = [
+      ...(responder ? [responder.certificate] : []),
+      ...(await caChain(this.deps.repository, ca)),
+    ];
     return binary(certificatesOnly(certificates), 'application/x-x509-ca-ra-cert');
   }
 
   private async caCertChain(ca: CaRecord): Promise<HttpResponse> {
-    return binary(certificatesOnly(await this.chainOf(ca)), 'application/x-x509-ca-ra-cert-chain');
+    return binary(
+      certificatesOnly(await caChain(this.deps.repository, ca)),
+      'application/x-x509-ca-ra-cert-chain',
+    );
   }
 
   private async pkiOperation(ca: CaRecord, message: Uint8Array, baseUrl?: string): Promise<HttpResponse> {
@@ -230,7 +211,7 @@ export class ScepServer {
         Promise.resolve(responder.decrypt(wrapped, oaepHash)),
       );
       // Answer in the cipher the client chose, which it is known to support.
-      const certificate = await this.dispatch(ca, parsed, opened.content, responder, baseUrl);
+      const certificate = await this.dispatch(ca, parsed, opened.content, baseUrl);
       return await reply({ certificates: [certificate] }, opened.cipher);
     } catch (error) {
       if (error instanceof ScepError) {
@@ -261,7 +242,6 @@ export class ScepServer {
     ca: CaRecord,
     message: PkiMessage,
     payload: Uint8Array,
-    _responder: DecryptingResponder,
     baseUrl?: string,
   ): Promise<X509Certificate> {
     const type = message.messageType as MessageType;
@@ -345,7 +325,7 @@ export class ScepServer {
     if (given === undefined || given === '') {
       return 'missing';
     }
-    if (this.deps.challenge && sameSecret(given, await this.deps.challenge.get())) {
+    if (this.deps.challenge && safeEqual(given, await this.deps.challenge.get())) {
       return 'accepted';
     }
     if (!this.deps.dynamicChallenges) {

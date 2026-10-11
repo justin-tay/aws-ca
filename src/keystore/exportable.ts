@@ -1,3 +1,5 @@
+import { CA_LABEL } from '../config/label';
+import { GENERATION } from './generation';
 import { generateLocalKey, localSignerFromPkcs8, type Signer } from '../ca';
 import type { KeyAlgorithm, KeyProtection } from '../config';
 import { decodeEncrypted, decodePlain, encodeEncrypted, encodePlain, kindOf } from './envelope';
@@ -10,9 +12,6 @@ import {
   type KeyRef,
 } from './types';
 import type { ValueStore } from './value-stores';
-
-const LABEL = /^[a-z0-9][a-z0-9-]{0,31}$/;
-const GENERATION = /^[a-z0-9]{4,32}$/;
 
 export interface ExportableKeyStoreOptions {
   values: ValueStore;
@@ -65,7 +64,7 @@ export class ExportableKeyStore implements CaKeyStore {
     algorithm: KeyAlgorithm,
     options: CreateKeyOptions = {},
   ): Promise<CreatedKey> {
-    if (!LABEL.test(label)) {
+    if (!CA_LABEL.test(label)) {
       throw new KeyStoreError('unsupported', `"${label}" is not a valid CA label.`);
     }
     if (options.generation !== undefined && !GENERATION.test(options.generation)) {

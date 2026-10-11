@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { sha256Hex } from '../hash';
 import type { ResolvedFrontDoor } from '../config';
 import {
   DeleteObjectCommand,
@@ -30,7 +30,7 @@ export interface TrustBundle {
  */
 export function buildTrustBundle(certificatePems: string[]): TrustBundle {
   const pem = certificatePems.map((certificate) => certificate.trim()).join('\n') + '\n';
-  const hash = createHash('sha256').update(pem).digest('hex').slice(0, 16);
+  const hash = sha256Hex(pem).slice(0, 16);
   return { pem, key: `${TRUST_PREFIX}ca-bundle-${hash}.pem` };
 }
 

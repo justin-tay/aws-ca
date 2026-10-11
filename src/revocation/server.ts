@@ -1,4 +1,6 @@
 import { authErrorResponse, authenticateRequest, isResponse, type Authenticator } from '../auth';
+import { binary, json, readJsonBody } from '../http/helpers';
+import { CA_LABEL_SEGMENT } from '../config/label';
 import { RevocationReason, canonicalSerial } from '../ca';
 import type { ResolvedConfig } from '../config';
 import type { CrlService, CrlStore } from '../crl';
@@ -17,8 +19,8 @@ const REASONS: Record<string, RevocationReason> = {
 };
 
 const SERIAL = /^[0-9a-f]{1,64}$/;
-const LABEL = /^[a-z0-9-]{1,32}$/;
-const MAX_BODY_BYTES = 4 * 1024;
+const CRL_PATH = new RegExp(`^/crl/(${CA_LABEL_SEGMENT})\\.crl$`);
+const REVOKE_PATH = new RegExp(`^/ca/(${CA_LABEL_SEGMENT})/revoke$`);
 
 export interface RevocationDependencies {
   config: Pick<ResolvedConfig, 'groups'>;
@@ -35,12 +37,12 @@ export interface RevocationDependencies {
 type Route = { kind: 'crl'; caLabel: string } | { kind: 'revoke'; caLabel: string };
 
 export function routeOf(path: string): Route | undefined {
-  const crl = /^\/crl\/([a-z0-9-]+)\.crl$/.exec(path);
-  if (crl && LABEL.test(crl[1])) {
+  const crl = CRL_PATH.exec(path);
+  if (crl) {
     return { kind: 'crl', caLabel: crl[1] };
   }
-  const revoke = /^\/ca\/([a-z0-9-]+)\/revoke$/.exec(path);
-  if (revoke && LABEL.test(revoke[1])) {
+  const revoke = REVOKE_PATH.exec(path);
+  if (revoke) {
     return { kind: 'revoke', caLabel: revoke[1] };
   }
   return undefined;
@@ -88,15 +90,9 @@ export class RevocationServer {
     if (!stored) {
       return text(404, 'There is no CRL for this CA yet.');
     }
-    return {
-      status: 200,
-      headers: {
-        'content-type': 'application/pkix-crl',
-        'cache-control': `max-age=${this.deps.crlMaxAgeSeconds ?? 3600}`,
-      },
-      body: Buffer.from(stored.der).toString('base64'),
-      isBase64Encoded: true,
-    };
+    return binary(stored.der, 'application/pkix-crl', {
+      'cache-control': `max-age=${this.deps.crlMaxAgeSeconds ?? 3600}`,
+    });
   }
 
   private async revoke(request: HttpRequest, caLabel: string): Promise<HttpResponse> {
@@ -104,22 +100,12 @@ export class RevocationServer {
     if (isResponse(user)) {
       return user;
     }
-    const contentType = (request.headers['content-type'] ?? '').split(';')[0].trim().toLowerCase();
-    if (contentType !== 'application/json') {
-      return text(415, 'The request must be application/json.');
+    const body = readJsonBody(request, { required: true });
+    if ('response' in body) {
+      return body.response;
     }
-    if (request.body.length === 0 || request.body.length > MAX_BODY_BYTES) {
-      return text(400, 'The request body is empty or too large.');
-    }
-    let serialInput: unknown;
-    let reasonInput: unknown;
-    try {
-      const body = JSON.parse(Buffer.from(request.body).toString('utf8')) as Record<string, unknown>;
-      serialInput = body.serialNumber;
-      reasonInput = body.reason;
-    } catch {
-      return text(400, 'The request body is not valid JSON.');
-    }
+    const serialInput = body.value?.serialNumber;
+    const reasonInput = body.value?.reason;
     if (typeof serialInput !== 'string') {
       return text(400, 'serialNumber is required.');
     }
@@ -202,9 +188,3 @@ export class RevocationServer {
     }
   }
 }
-
-const json = (status: number, value: unknown): HttpResponse => ({
-  status,
-  headers: { 'content-type': 'application/json' },
-  body: JSON.stringify(value),
-});

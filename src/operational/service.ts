@@ -1,8 +1,9 @@
-import { createPrivateKey, randomBytes, constants as cryptoConstants, privateDecrypt } from 'node:crypto';
+import { createPrivateKey, constants as cryptoConstants, privateDecrypt } from 'node:crypto';
 import { PublicKey, X509Certificate } from '@peculiar/x509';
 import { certificateToPem, issueCertificate, type Signer } from '../ca';
 import type { KeyAlgorithm, ResolvedConfig } from '../config';
 import { KeyStoreError, type KeyStoreProvider } from '../keystore';
+import { newGeneration } from '../keystore/generation';
 import { silentLogger, type Logger } from '../log';
 import {
   RepositoryError,
@@ -59,8 +60,6 @@ export interface EnsureOutcome {
   notAfter: Date;
 }
 
-const defaultGeneration = (): string => randomBytes(5).toString('hex');
-
 /**
  * Issues, rotates and loads the delegated keys of each issuing CA: the RSA key SCEP decrypts with,
  * and the OCSP signing key. They are created by the bootstrap function (the only identity allowed
@@ -75,7 +74,7 @@ export class OperationalKeyService {
   constructor(private readonly deps: OperationalDependencies) {
     this.logger = deps.logger ?? silentLogger;
     this.now = deps.now ?? (() => new Date());
-    this.newGeneration = deps.newGeneration ?? defaultGeneration;
+    this.newGeneration = deps.newGeneration ?? newGeneration;
   }
 
   /** The purposes each issuing CA needs, from the configuration. */

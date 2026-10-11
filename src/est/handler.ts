@@ -1,4 +1,6 @@
 import { X509Certificate } from '@peculiar/x509';
+import { caChain } from '../ca/chain';
+import { BODY_LIMITS, mediaType } from '../http/helpers';
 import {
   authErrorResponse,
   authenticateRequest,
@@ -15,8 +17,6 @@ import { errorFields, silentLogger, type Logger } from '../log';
 import { PolicyError, decideIssuance } from '../policy';
 import type { CaRecord, CaRepository } from '../repo';
 import { certsOnlyBase64 } from './pkcs7';
-
-const MAX_REQUEST_BYTES = 64 * 1024;
 
 export interface EstDependencies {
   config: Pick<ResolvedConfig, 'subordinateCas' | 'groups' | 'policy' | 'lifetimes' | 'ocsp'>;
@@ -100,7 +100,7 @@ export class EstServer {
       }
       if (route.operation === 'cacerts') {
         return request.method === 'GET'
-          ? pkcs7(await this.chainOf(ca))
+          ? pkcs7(await caChain(this.deps.repository, ca))
           : text(405, 'Use GET.', { allow: 'GET' });
       }
       return request.method === 'POST'
@@ -117,22 +117,6 @@ export class EstServer {
       });
       return text(500, 'Internal error.');
     }
-  }
-
-  /** The CA's certificate and its parents, nearest first. A record names its parent, so this is read, not configured. */
-  private async chainOf(ca: CaRecord): Promise<X509Certificate[]> {
-    const chain = [new X509Certificate(ca.certificatePem)];
-    let parent = ca.parent;
-    while (parent !== undefined) {
-      // oxlint-disable-next-line no-await-in-loop
-      const record = await this.deps.repository.getCa(parent);
-      if (!record) {
-        break;
-      }
-      chain.push(new X509Certificate(record.certificatePem));
-      parent = record.parent;
-    }
-    return chain;
   }
 
   /**
@@ -190,11 +174,11 @@ export class EstServer {
       return user;
     }
 
-    const contentType = (request.headers['content-type'] ?? '').split(';')[0].trim().toLowerCase();
+    const contentType = mediaType(request);
     if (contentType !== 'application/pkcs10') {
       return text(415, 'The request must be application/pkcs10.');
     }
-    if (request.body.length === 0 || request.body.length > MAX_REQUEST_BYTES) {
+    if (request.body.length === 0 || request.body.length > BODY_LIMITS.csr) {
       return text(400, 'The request body is empty or too large.');
     }
 

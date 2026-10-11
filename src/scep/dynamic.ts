@@ -1,4 +1,5 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
+import { sha256Hex } from '../hash';
 import type { CaRepository, ScepChallengeRefusal } from '../repo';
 
 export interface DynamicChallengeOptions {
@@ -11,8 +12,7 @@ export interface DynamicChallengeOptions {
 }
 
 /** The SHA-256 of a challenge, lowercase hex: all that is stored of it. */
-export const hashChallenge = (challenge: string): string =>
-  createHash('sha256').update(challenge, 'utf8').digest('hex');
+export const hashChallenge = (challenge: string): string => sha256Hex(challenge);
 
 /**
  * Dynamic SCEP challenges: single use, expiring, issued on request (NDES calls them one-time

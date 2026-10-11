@@ -1,5 +1,6 @@
 /* oxlint-disable no-await-in-loop -- CAs are created one after another on purpose: each needs the root to exist, and a failure should stop before the next key is made. */
-import { createHash, randomBytes } from 'node:crypto';
+import { sha256Hex } from '../hash';
+import { newGeneration as defaultGeneration } from '../keystore/generation';
 import { PublicKey, X509Certificate } from '@peculiar/x509';
 import { certificateToPem, createRootCa, issueCertificate, type Signer } from '../ca';
 import type { ResolvedConfig, ResolvedSubordinateCa } from '../config';
@@ -41,12 +42,8 @@ export interface BootstrapResult {
   rootKeyExported: boolean;
 }
 
-const defaultGeneration = (): string => randomBytes(5).toString('hex');
-
 const fingerprintOf = (record: CaRecord): string =>
-  createHash('sha256')
-    .update(Buffer.from(new X509Certificate(record.certificatePem).rawData))
-    .digest('hex');
+  sha256Hex(Buffer.from(new X509Certificate(record.certificatePem).rawData));
 
 function pkcs8ToPem(pkcs8: Uint8Array): string {
   const body =

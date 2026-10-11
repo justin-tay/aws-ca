@@ -1,3 +1,4 @@
+export { caChain } from './chain';
 export { CsrError, parseCsr, type ParsedCsr, type RequestedName } from './csr';
 export { buildCrl, crlEntrySerial, RevocationReason, type BuildCrlParams, type RevokedEntry } from './crl';
 export {

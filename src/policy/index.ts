@@ -1,4 +1,5 @@
 export {
+  commonNameProblem,
   decideIssuance,
   decideScepIssuance,
   escapeDnValue,
