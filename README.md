@@ -1,273 +1,331 @@
 # aws-ca
 
-A cheap replacement for AWS Private CA, running on Lambda and deployed as a CDK
-app. It issues **client certificates** over SCEP and EST and **server
-certificates** over EST, answers OCSP, and publishes a CRL. CA keys live in a
-backend you choose per CA: SSM Parameter Store (free), Secrets Manager
-(about $0.40 a month) or KMS (about $1 a month, the key never leaves KMS).
+## Background
 
-It is an application, not a library: you configure it, deploy it, and enrol
-devices against the URLs it prints.
+A certificate authority (CA) that runs on AWS Lambda, as a more cost efficient alternative to
+[AWS Private Certificate Authority](https://docs.aws.amazon.com/privateca/). It issues client
+certificates using [SCEP](https://datatracker.ietf.org/doc/html/rfc8894) and
+[Enrollment over Secure Transport](https://datatracker.ietf.org/doc/html/rfc7030) (EST), issues server
+certificates using EST, and answers [OCSP](https://datatracker.ietf.org/doc/html/rfc6960) and publishes
+a CRL for revocation.
 
-> The design and the reasoning behind it are in [docs/design.md](docs/design.md);
-> day-two procedures are in [docs/operations.md](docs/operations.md); the log
-> schema (ECS) is in [docs/logging.md](docs/logging.md). The
-> previous implementation is kept on another branch (it was `main` before this one
-> replaced it) and is not migrated.
+The keys of the CAs can be kept in Parameter Store (free), Secrets Manager (about $0.40 USD per month
+per key) or KMS (about $1 USD per month per key), chosen per CA.
 
-## What you get
+## Quick Start
 
-| Protocol  | Used for                                        | Authentication                                                     |
-| --------- | ----------------------------------------------- | ------------------------------------------------------------------ |
-| EST       | client and server certificates, renewal         | Cognito user and password (Basic), or the old certificate (mTLS)   |
-| SCEP      | client certificates (Windows MDM, network gear) | a static or single-use (dynamic) challenge, or the old certificate |
-| OCSP      | revocation status, GET and POST                 | none (public)                                                      |
-| CRL       | revocation list per CA                          | none (public)                                                      |
-| `/revoke` | revoke a certificate                            | the certificate's owner, or a member of the `est-admin` group      |
+Requires Node.js 24 and AWS credentials for an account and region that is
+[bootstrapped for the CDK](https://docs.aws.amazon.com/cdk/v2/guide/bootstrapping.html).
 
-Certificates are ECDSA P-256 by default (RSA and P-384/P-521 are configurable).
-Server certificates are limited to the domain suffixes you list.
-
-## Requirements
-
-- Node.js 24
-- AWS credentials and a CDK-bootstrapped account and region
-- For the real-AWS tests only: OpenSSL, and a JDK plus a checkout of
-  [jscep](https://github.com/jscep/jscep) next to this one for the SCEP check
-
-## Quick start
-
-```bash
+```shell
 npm install
-cp aws-ca.config.example.ts aws-ca.config.ts   # edit: at least policy.allowedDomainSuffixes
+cp aws-ca.config.example.ts aws-ca.config.ts
 npm run cdk:deploy
 ```
 
-Every option has a default except `policy.allowedDomainSuffixes`, which you must
-set while a CA issues server certificates. A bad configuration fails `cdk synth`
-with every problem listed. `AWS_CA_CONFIG` selects another file and
-`AWS_CA_STACK_NAME` another stack name, so several instances can sit side by
-side.
+The deployment prints the endpoints and the `UserPoolId` of the Cognito User Pool that authenticates
+users with `Basic` authentication. The following commands create a user that can enroll client
+certificates.
 
-The deploy takes a few minutes; with the `cloudfront` front door it takes about
-ten more per distribution. It prints:
+```shell
+aws cognito-idp admin-create-user \
+    --user-pool-id <YOUR_COGNITO_USER_POOL_ID> \
+    --username <USERNAME> \
+    --message-action SUPPRESS
 
-| Output                                        | Meaning                                                                                                 |
-| --------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `RootCaFingerprint`                           | SHA-256 of the root certificate. Compare it before trusting the root                                    |
-| `EstEndpoint`                                 | EST base URL                                                                                            |
-| `ScepEndpoint`                                | SCEP URL for the first issuing CA                                                                       |
-| `ScepChallengeParameter`                      | the SSM parameter that holds the static SCEP challenge                                                  |
-| `ScepChallengeUrl`                            | where an MDM fetches a single-use SCEP challenge (dynamic mode)                                         |
-| `RevocationBaseUrl`                           | where CRL and OCSP are served (plain HTTP), with `cloudfront`                                           |
-| `OriginFunctionUrl`                           | the Function URL behind CloudFront; it refuses requests without the origin secret                       |
-| `OfflineRootKeyParameter`                     | with `rootCa.keyHandling: offline`: read the root key here once, store it offline, delete the parameter |
-| `UserPoolId`, `UserPoolClientId`, `TableName` | what you need to manage users and look at data                                                          |
+aws cognito-idp admin-set-user-password \
+    --user-pool-id <YOUR_COGNITO_USER_POOL_ID> \
+    --username <USERNAME> \
+    --password <PASSWORD> \
+    --permanent
 
-### Create a user and enrol
-
-Users are created by an administrator; there is no self sign-up.
-
-```bash
-aws cognito-idp admin-create-user --user-pool-id <UserPoolId> --username alice --message-action SUPPRESS
-aws cognito-idp admin-set-user-password --user-pool-id <UserPoolId> --username alice --password '<password>' --permanent
-aws cognito-idp admin-add-user-to-group --user-pool-id <UserPoolId> --username alice --group-name est-client
+aws cognito-idp admin-add-user-to-group \
+    --user-pool-id <YOUR_COGNITO_USER_POOL_ID> \
+    --username <USERNAME> \
+    --group-name est-client
 ```
 
-Groups: `est-client` (client certificates), `est-server` (server certificates)
-and `est-admin` (may revoke any certificate). The names are configurable.
+| Group        | Allows the user to                                                    |
+| ------------ | --------------------------------------------------------------------- |
+| `est-client` | enroll a client certificate, for their own user name                  |
+| `est-server` | enroll a server certificate, for names within `allowedDomainSuffixes` |
+| `est-admin`  | revoke any certificate, and request SCEP challenges                   |
+| `scep-admin` | request SCEP challenges, for example the account a MDM uses           |
 
-A client certificate. The subject CN must be the user name, and whatever else is
-in the request is replaced by the configured template:
+## Endpoints
 
-```bash
-openssl ecparam -name prime256v1 -genkey -noout -out alice.key
-openssl req -new -key alice.key -subj "/CN=alice" -outform DER | base64 -w0 > alice.csr
-curl -sS -u alice:'<password>' -H 'Content-Type: application/pkcs10' \
-  --data-binary @alice.csr "<EstEndpoint>/issuing/simpleenroll" | base64 -d > alice.p7b
-openssl pkcs7 -inform DER -in alice.p7b -print_certs -out alice-chain.pem
+```shell
+https://xyz.cloudfront.net/.well-known/est/issuing/simpleenroll
 ```
 
-A server certificate is the same request with `subjectAltName` DNS names, from a
-user in `est-server`, for names inside `policy.allowedDomainSuffixes`.
+`issuing` is the label of the CA, which can be left out to use the first one. The outputs of the
+deployment (`EstEndpoint`, `ScepEndpoint`, `RevocationBaseUrl`, ...) give the addresses.
 
-Windows 11 can enrol with its own SCEP and EST clients; the verified commands are
-in [docs/windows-enrollment.md](docs/windows-enrollment.md).
+| Operation                       | Operation Path                         |
+| ------------------------------- | -------------------------------------- |
+| Distribution of CA Certificates | `/.well-known/est/<ca>/cacerts`        |
+| Enrollment of Clients           | `/.well-known/est/<ca>/simpleenroll`   |
+| Re-enrollment of Clients        | `/.well-known/est/<ca>/simplereenroll` |
+| SCEP                            | `/scep/<ca>/pkiclient.exe`             |
+| SCEP Challenge (NDES page)      | `/scep/<ca>/certsrv/mscep_admin/`      |
+| SCEP Challenge (JSON)           | `POST /ca/<ca>/scep/challenge`         |
+| Revoke Client                   | `POST /ca/<ca>/revoke`                 |
+| Certificate Revocation List     | `/crl/<ca>.crl`                        |
+| OCSP Responder                  | `/ocsp/<ca>`                           |
 
-### Revoke and check
+The default front door is CloudFront, which can serve the CRL and OCSP over HTTP. The other front
+doors (`function-url`, `http-api` and `rest-api`) only serve HTTPS, so the OCSP responder is a HTTPS
+uri. See [docs/design.md](docs/design.md) for what each front door costs and supports.
 
-`<base URL>` is the address the `EstEndpoint` output starts with (everything before `/.well-known/est`).
+## Configuration
 
-```bash
-curl -sS -u alice:'<password>' -H 'Content-Type: application/json' \
-  -d '{"serialNumber":"<hex serial>","reason":"keyCompromise"}' "<base URL>/ca/issuing/revoke"
-curl -sS "<RevocationBaseUrl>/crl/issuing.crl" -o issuing.crl
-openssl ocsp -issuer issuing.pem -cert alice.pem -url "<RevocationBaseUrl>/ocsp/issuing" -CAfile chain.pem
-```
+The stack is configured in `aws-ca.config.ts`. Every option is optional except
+`policy.allowedDomainSuffixes`, which is needed while a CA issues server certificates. An invalid
+configuration fails `cdk synth` and lists every problem. `AWS_CA_CONFIG` selects another file and
+`AWS_CA_STACK_NAME` another stack name.
 
-## Choosing a key store
+| Option                          | Description                                                                                          | Default                         |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------- | ------------------------------- |
+| `namePrefix`                    | Prefix of the parameter and secret names                                                             | `/private-ca`                   |
+| `removalPolicy`                 | `retain` keeps the table and keys when the stack is deleted, `destroy` removes them                  | `retain`                        |
+| `rootCa`                        | `subject`, `algorithm`, `keyStore`, `validityYears`, `keyHandling` (`retain` or `offline`)           | ECDSA P-256, 20 years, `retain` |
+| `subordinateCas`                | `label`, `profiles`, `subject`, `algorithm`, `keyStore`, `validityYears` of each issuing CA          | one `issuing` CA, both profiles |
+| `operationalKey`                | The RSA key that SCEP decrypts with: `backend`, `protection`, `modulusLength`, `validityDays`        | RSA 2048, 365 days              |
+| `scep.enabled`                  | Serve SCEP                                                                                           | `true`                          |
+| `scep.challenge`                | `static` (shared secret), `dynamic` (single use, requested per device) or `both`                     | `static`                        |
+| `scep.dynamicChallenge`         | `validityMinutes`, `maxOutstanding`, `lengthBytes`                                                   | 60, 100, 8                      |
+| `ocsp`                          | `enabled`, `signing` (`operational`, `kms` or `ca`), `maxAgeSeconds`, `nextUpdateHours`              | enabled, `operational`, 3600, 4 |
+| `crl.nextUpdateDays`            | Days until the CRL says it is updated (it is rebuilt on every revocation and daily)                  | `7`                             |
+| `lifetimes`                     | `clientDays` and `serverDays`, the validity of issued certificates                                   | 365, 90                         |
+| `retention.afterExpiryDays`     | Days an expired certificate is kept in the table                                                     | `90`                            |
+| `policy.allowedDomainSuffixes`  | Server certificates are only issued for names within these                                           |                                 |
+| `policy.subjectTemplate`        | Subject of client certificates, `{username}` is the authenticated user                               | `CN={username}`                 |
+| `groups`                        | Names of the Cognito groups: `client`, `server`, `admin` and `scep`                                  | as above                        |
+| `auth.cognitoTier`              | `lite` or `essentials`                                                                               | `lite`                          |
+| `frontDoor`                     | `type` (`cloudfront`, `function-url`, `http-api`, `rest-api`), `mtls`, `domain` and REST API options | `cloudfront`                    |
+| `frontDoor.originSecretVersion` | CloudFront only. Raise it and deploy to rotate the secret between CloudFront and the origin          | `1`                             |
+| `logging.clientDetails`         | Log the address and user agent of the caller                                                         | `true`                          |
 
-Chosen per CA with `keyStore: { backend, protection }`.
-
-| Backend     | Extra cost per CA | Key can be exported | Use when                                 |
-| ----------- | ----------------- | ------------------- | ---------------------------------------- |
-| `parameter` | $0                | yes                 | cost matters most (the default)          |
-| `secret`    | about $0.40/month | yes                 | you want Secrets Manager's controls      |
-| `kms`       | about $1/month    | no                  | the key must never be readable by anyone |
-
-For `parameter` and `secret`, `protection` is `aws-managed-key`,
-`app-encrypted` (default: AES-256-GCM under a separate secret, so browsing the
-console does not reveal a key) or `customer-managed-key` (a KMS key whose policy
-admits only the Lambda role; about $1 a month). `app-encrypted` defeats casual
-browsing; it is not a substitute for a customer-managed key.
-
-SCEP needs an RSA key it can export (the operational key), and OCSP uses one by
-default, so with only `kms` CAs that key is still kept in a parameter (or a
-secret): it is delegated and limited, but it is not in KMS. To keep **every** key
-in KMS, turn SCEP off (`scep: { enabled: false }`) and sign OCSP with KMS
-(`ocsp: { signing: 'kms' }`, a dedicated key per CA, or `'ca'`, the CA key itself).
-
-## Choosing a front door
-
-`frontDoor.type` decides how clients reach the Lambda.
-
-| Level                  | Fixed cost                                               | Per request             | CRL/OCSP over HTTP        | mTLS renewal                 | Pick it when                            |
-| ---------------------- | -------------------------------------------------------- | ----------------------- | ------------------------- | ---------------------------- | --------------------------------------- |
-| `cloudfront` (default) | $0 on the free plan or allowance                         | about $0                | yes (second distribution) | yes (default domain works)   | most deployments                        |
-| `function-url`         | $0                                                       | Lambda only             | no                        | no                           | the cheapest possible; HTTPS only       |
-| `http-api`             | $0                                                       | about $1 per million    | no                        | yes (custom domain)          | you already use API Gateway             |
-| `rest-api`             | $0 (private: about $7/month per AZ for the VPC endpoint) | about $3.50 per million | no                        | yes (regional custom domain) | you need a **private** API inside a VPC |
-
-Things to know:
-
-- **CloudFront** adds a secret header to every request and the Lambda rejects any
-  request without it, so the public Function URL behind it cannot be used to skip
-  the front door. mTLS is _optional_: a device with no certificate yet can enrol
-  with a password, and a presented certificate is validated against a trust store
-  built from your CAs. With mTLS there are two distributions (HTTP and mTLS cannot
-  share one); the plain one serves only `/crl/*` and `/ocsp/*`.
-- **`http-api` and `rest-api`** have no Function URL, and the default `execute-api`
-  address is switched off when mTLS is on. mTLS needs a custom domain and an ACM
-  certificate that you own. **API Gateway mTLS is not optional**: as far as AWS
-  documents it, a client must present a certificate to connect at all, so a device
-  without one cannot make its first enrolment by password on that domain, and CRL
-  and OCSP clients need one too. This is unverified here (no domain was available);
-  use `cloudfront` where devices must enrol with a password first.
-- **Private `rest-api`** is reachable only through an `execute-api` VPC endpoint
-  (yours, or one this stack creates), and mTLS is not available on it.
-- OCSP over HTTP (as many clients expect) exists only with `cloudfront`.
-
-## What it costs
-
-Typical, per month, for a small fleet (a few thousand certificates, tens of
-thousands of requests). Prices are approximate; check the AWS pricing pages.
-
-| Item                                                              | Cost                                       |
-| ----------------------------------------------------------------- | ------------------------------------------ |
-| Root and issuing CA keys in Parameter Store                       | $0                                         |
-| Same in Secrets Manager                                           | about $0.80                                |
-| Same in KMS                                                       | about $2, plus $0.03 per 10,000 signatures |
-| DynamoDB (on demand), S3, Cognito (Lite, 10,000 MAU free), Lambda | cents                                      |
-| CloudFront (free plan or allowance)                               | $0                                         |
-| API Gateway                                                       | $1 or $3.50 per million requests           |
-| Private REST API's VPC endpoint                                   | about $7 per AZ                            |
-| Customer-managed key for `customer-managed-key`                   | about $1                                   |
-| A dedicated KMS key for OCSP (`ocsp.signing: 'kms'`)              | about $1 per CA                            |
-
-## How it is protected
-
-- **Two roles.** The function that serves requests can use the issuing CAs' keys;
-  only the bootstrap function can use the root's, and the runtime role carries an
-  explicit deny for it. With `rootCa.keyHandling: 'offline'` the root key is handed
-  over once and removed from the store.
-- **No secrets in the template or environment.** Keys, the encryption secret and
-  the SCEP challenge are SSM SecureStrings, and logs are ECS records
-  written only from a fixed list of fields, so authorization headers, passwords,
-  keys, CSRs and PEM cannot reach them ([docs/logging.md](docs/logging.md)). The one exception is the
-  CloudFront origin secret: it also has to be written into the distribution's
-  origin header, so it is visible to anyone who can read that distribution's
-  configuration, and it passes through the bootstrap custom resource's response.
-  It only gates the origin (see "front door"); rotate it with
-  `frontDoor.originSecretVersion`.
-- **Revocation is checked where it matters.** OCSP and the CRL come from the
-  table; a certificate used for mTLS renewal is looked up and refused if revoked,
-  and its owner must still be an enabled Cognito user in the right group.
-- **The static SCEP challenge is a shared secret.** Anyone who holds it can obtain
-  a certificate for any name. Treat it like a password, rotate it
-  ([docs/operations.md](docs/operations.md)), and prefer EST where you can. Set
-  `scep.challenge: 'dynamic'` for single-use, expiring challenges that an MDM
-  requests per device (see [SCEP challenges](#scep-challenges)).
-
-## SCEP challenges
-
-`scep.challenge` chooses how a SCEP client proves it may enroll:
-
-| Mode      | Behaviour                                                                                                |
-| --------- | -------------------------------------------------------------------------------------------------------- |
-| `static`  | (default) One shared secret in `<prefix>/internal/scep-challenge`. Simple; anyone holding it can enroll. |
-| `dynamic` | Single-use challenges that expire (60 minutes by default), issued on request. No shared secret exists.   |
-| `both`    | Either is accepted; the static secret is not consumed.                                                   |
-
-Dynamic challenges are requested by a Cognito user in the `scep-admin` group
-(`groups.scep`; `est-admin` also qualifies), with Basic authentication:
-
-- **NDES-style page** for MDMs such as Workspace ONE that fetch an NDES one-time
-  password: `GET /scep/<ca>/certsrv/mscep_admin/` (also `/certsrv/mscep_admin/` when
-  exactly one CA issues client certificates). The page is NDES's, in UTF-16 with a
-  byte order mark, with a 16-digit hex password. Each fetch creates a new
-  challenge. PSCertificateEnrollment's `Get-NDESOTP -Suffix
-'scep/issuing/certsrv/mscep_admin' -Credential $c -BasicAuthentication` reads it.
-- **JSON** for scripts: `POST /ca/<ca>/scep/challenge` with an optional
-  `{"commonName": "device-1"}`; the reply is `{challenge, expiresAt, caLabel, commonName?}`.
-  A challenge bound to a common name works only for a request for that name.
-
-A challenge is used up by the request that issues a certificate, and not by one
-the policy refuses. Only its SHA-256 is stored. At most
-`scep.dynamicChallenge.maxOutstanding` (100) unexpired challenges exist per CA;
-more are refused with 429. Renewal with an issued certificate needs no challenge.
+The key store of a CA is `keyStore: { backend, protection }`. The `backend` is `parameter`, `secret`
+or `kms`. For `parameter` and `secret` the `protection` is `aws-managed-key`, `app-encrypted` (the
+default, encrypted with a separate secret so the key cannot be seen in the console) or
+`customer-managed-key`.
 
 ```ts
-scep: { challenge: 'dynamic', dynamicChallenge: { validityMinutes: 60, maxOutstanding: 100, lengthBytes: 8 } },
-groups: { scep: 'scep-admin' },
+import { defineConfig } from './src/config';
+
+export default defineConfig({
+  policy: { allowedDomainSuffixes: ['example.internal'] },
+  rootCa: { keyStore: { backend: 'parameter', protection: 'app-encrypted' } },
+  subordinateCas: [{ label: 'issuing', keyStore: { backend: 'kms' } }],
+  scep: { challenge: 'dynamic' },
+});
 ```
 
-## Commands
+The static SCEP challenge is a shared secret, so anyone with it can obtain a certificate for any name.
+With `dynamic`, a challenge is single use and expires, and is requested by a user in `scep-admin`,
+either from the NDES page (`/scep/<ca>/certsrv/mscep_admin/`) that MDMs such as Workspace ONE read,
+or from `/ca/<ca>/scep/challenge` that can bind the challenge to a common name.
 
-| Command                                            | What it does                                                                              |
-| -------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| `npm test`                                         | Unit tests with coverage (jest, `@swc/jest`); OpenSSL and jscep checks run when available |
-| `npm run typecheck`                                | Type-check the project (`tsc`)                                                            |
-| `npm run lint`                                     | `oxlint` with type-aware rules                                                            |
-| `npm run format`                                   | Format with `oxfmt` (`format:check` to verify)                                            |
-| `npm run cdk:synth` / `cdk:deploy` / `cdk:destroy` | Synthesize, deploy, destroy                                                               |
-| `npm run test:aws -- --yes <name>`                 | Real-AWS tests: `keystore`, `repository`, `stack`, `cloudfront`                           |
+## Resources
 
-The real-AWS suites create and remove resources in the configured account and
-region. `stack` takes about five minutes; `cloudfront` takes more than ten
-because each distribution takes about seven minutes to create and to delete.
-Each suite removes what it made and says so loudly if it cannot.
+| Logical ID          | Type                            | Description                                                |
+| ------------------- | ------------------------------- | ---------------------------------------------------------- |
+| `Table`             | `AWS::DynamoDB::Table`          | Stores the certificate authorities and the certificates    |
+| `CrlBucket`         | `AWS::S3::Bucket`               | Stores the certificate revocation lists                    |
+| `UserPool`          | `AWS::Cognito::UserPool`        | Authenticates the users                                    |
+| `ApiFunction`       | `AWS::Lambda::Function`         | Serves EST, SCEP, OCSP, CRL and revocation                 |
+| `BootstrapFunction` | `AWS::Lambda::Function`         | Creates the CAs and keys, and rotates the operational keys |
+| `CrlRefresh`        | `AWS::Events::Rule`             | Rebuilds the CRLs daily                                    |
+|                     | `AWS::CloudFront::Distribution` | The front door, unless another `frontDoor` is configured   |
 
-## Limits you should know
+Parameters are used for the keys if the `backend` is `parameter`. Note that standard tier
+parameters are free.
 
-- **Renewing a CA is done by adding a new one**, not by re-signing the old one
-  ([docs/operations.md](docs/operations.md)).
-- SCEP supports `PKCSReq`, `RenewalReq` and `GetCert`; not `CertPoll` or `GetCRL`.
-- SCEP issues client certificates only. No ACME, and no EST `serverkeygen` or `csrattrs`.
-- API Gateway mTLS and the Intune SCEP flow are not verified against real
-  services (they need a domain and a tenant that were not available).
-- CRLs are rebuilt on each revocation and daily; a revocation made within
-  milliseconds of a CRL build can miss it until the next one.
+| Name                                     | Type                  | Description                                                     |
+| ---------------------------------------- | --------------------- | --------------------------------------------------------------- |
+| `/private-ca/ca/root/key`                | `AWS::SSM::Parameter` | The encrypted private key of the Root CA as a `SecureString`    |
+| `/private-ca/ca/<label>/key`             | `AWS::SSM::Parameter` | The encrypted private key of an issuing CA as a `SecureString`  |
+| `/private-ca/ca/<label>-ops/<id>/key`    | `AWS::SSM::Parameter` | The operational key of an issuing CA, replaced as it expires    |
+| `/private-ca/internal/encryption-secret` | `AWS::SSM::Parameter` | Encrypts the keys when `protection` is `app-encrypted`          |
+| `/private-ca/internal/scep-challenge`    | `AWS::SSM::Parameter` | The static SCEP challenge, unless `scep.challenge` is `dynamic` |
 
-## Layout
+Secrets are used for the keys if the `backend` is `secret`. Note that each secret costs $0.40 USD
+per month.
+
+| Name                        | Type                          | Description                                |
+| --------------------------- | ----------------------------- | ------------------------------------------ |
+| `private-ca/ca/root/key`    | `AWS::SecretsManager::Secret` | The encrypted private key of the Root CA   |
+| `private-ca/ca/<label>/key` | `AWS::SecretsManager::Secret` | The encrypted private key of an issuing CA |
+
+KMS keys are used if the `backend` is `kms`. Note that each key costs $1 USD per month, and the key
+cannot be exported.
+
+| Alias                  | Type            | Description              |
+| ---------------------- | --------------- | ------------------------ |
+| `alias/aws-ca/root`    | `AWS::KMS::Key` | The Root CA key          |
+| `alias/aws-ca/<label>` | `AWS::KMS::Key` | The key of an issuing CA |
+
+### Destroy Resources
+
+The following command will destroy the resources, otherwise costs will be incurred.
+
+```shell
+npm run cdk:destroy
+```
+
+With `removalPolicy` set to `retain`, which is the default, the table and the keys are kept because
+deleting them loses the CA. Set it to `destroy` for experiments.
+
+## Certificate Signing Request
+
+The subject common name of a client certificate must be the name of the authenticated user, and the
+rest of the subject is replaced by the `policy.subjectTemplate`. Server certificates take the DNS
+names from the `subjectAltName` extension, which must be within the `allowedDomainSuffixes`.
+
+### Windows
+
+When using Windows the [`certreq`](https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/certreq_1) application can be used to generate the CSR using an `inf` configuration file.
+
+The private key will stored in the Windows certificate store in the `Certificate Enrollment Requests` folder in either the `Current User` or `Local Computer` certificate store if `MachineKeySet` is `TRUE`.
+
+Note that Browsers will only use client certificates under `Personal` in the `Current User` certificate store.
+
+The `certlm.msc` command can be used to open the `Local Computer` certificate store in Windows.
+
+The `certmgr.msc` command can be used to open the `Current User` certificate store in Windows.
+
+The following command can be used to generate a new request from an `inf` configuration file.
+
+```shell
+certreq -new config.inf client.csr
+```
+
+```ini
+[Version]
+Signature= "$Windows NT$"
+
+[NewRequest]
+Subject = "CN=<USERNAME>"
+KeySpec = AT_KEYEXCHANGE
+KeyLength = 2048
+Exportable = false
+MachineKeySet = false
+SMIME = false
+PrivateKeyArchive = false
+UserProtected = false
+UseExistingKeySet = false
+ProviderName = "Microsoft RSA SChannel Cryptographic Provider"
+ProviderType = 12
+RequestType = PKCS10
+KeyUsage = 0xa0
+HashAlgorithm = SHA256
+SuppressDefaults = true
+
+[EnhancedKeyUsageExtension]
+OID=1.3.6.1.5.5.7.3.2
+```
+
+The following command is used to link the previously generated private key with the issued certificate and removes the pending certificate request from the system.
+
+This requires administrative privileges if `MachineKeySet` is `TRUE`.
+
+```shell
+certreq -accept certificates.p7b
+```
+
+Note that the certificate chain needs to already be installed in the certificate store in Windows otherwise the following error will be displayed.
 
 ```
-bin/            CDK app entry
-lib/            the stack, the front doors, IAM statements
-src/config/     configuration model, validation, defaults
-src/ca/         X.509 and CMS-adjacent crypto (issue, CRL, CSR)
-src/keystore/   Parameter Store, Secrets Manager and KMS key stores
-src/repo/       DynamoDB and in-memory repositories
-src/est|scep|ocsp|revocation|crl/   the protocols
-src/handlers/   the Lambda entry points (API and bootstrap)
-test/           unit tests; test/integration is real AWS and opt in
+A certificate issued by the certification authority cannot be installed. Contact your administrator.
+A certificate chain could not be built to a trusted root authority. 0x800b010a (-2146762486 CERT_E_CHAINING)
 ```
+
+### OpenSSL
+
+```shell
+openssl ecparam -name prime256v1 -genkey -noout -out clientkey.pem
+openssl req -new -key clientkey.pem -subj "/CN=<USERNAME>" -out client.csr
+```
+
+## Certificate Enrollment
+
+### EST
+
+#### Windows
+
+```shell
+$Endpoint = "https://xyz.cloudfront.net/.well-known/est/issuing/"
+curl.exe --location --request POST $Endpoint'simpleenroll' --user $Username':'$Password --header 'Content-Type: application/pkcs10' --data-binary "@$CsrPath" --output $CertPath
+```
+
+#### OpenSSL
+
+```shell
+export Endpoint="https://xyz.cloudfront.net/.well-known/est/issuing/"
+curl --location --request POST ${Endpoint}'simpleenroll' --user ${Username}':'${Password} --header 'Content-Type: application/pkcs10' --data-binary "@$CsrPath" --output $CertPath
+```
+
+The response is a base64 encoded PKCS#7 with the certificate and the issuing CA.
+
+### SCEP
+
+#### Windows
+
+The [PSCertificateEnrollment](https://www.powershellgallery.com/packages/PSCertificateEnrollment)
+module enrolls using the SCEP client of Windows. The challenge is either the static challenge, which
+is in the parameter that the `ScepChallengeParameter` output names, or a dynamic one from the NDES
+page.
+
+```shell
+Install-Module PSCertificateEnrollment -Scope CurrentUser
+
+# static challenge
+$Challenge = aws ssm get-parameter --name /private-ca/internal/scep-challenge --with-decryption --query Parameter.Value --output text
+
+# dynamic challenge, with a user in the scep-admin group
+$Challenge = Get-NDESOTP -ComputerName $HostName -Suffix 'scep/issuing/certsrv/mscep_admin' -Credential $Username -BasicAuthentication
+
+Get-SCEPCertificate -ComputerName $HostName -UseSSL -Suffix 'scep/issuing' -ChallengePassword $Challenge -Subject 'CN=DeviceUid' -KeyAlgorithm RSA -KeyLength 2048
+```
+
+Renewal is signed with the certificate that was issued, so it does not need a challenge.
+
+```shell
+Get-SCEPCertificate -ComputerName $HostName -UseSSL -Suffix 'scep/issuing' -SigningCert (Get-Item Cert:\CurrentUser\My\<THUMBPRINT>) -KeyAlgorithm RSA -KeyLength 2048
+```
+
+More commands, including EST from the Windows client, are in [docs/windows-enrollment.md](docs/windows-enrollment.md).
+
+## Certificate Revocation
+
+The owner of the certificate, or a user in `est-admin`, can revoke a certificate using its serial
+number. The reason is optional and is one of `unspecified`, `keyCompromise`, `affiliationChanged`,
+`superseded`, `cessationOfOperation` or `privilegeWithdrawn`.
+
+### Windows
+
+```shell
+$Endpoint = "https://xyz.cloudfront.net/"
+curl.exe --location --request POST $Endpoint'ca/issuing/revoke' --user $Username':'$Password --header 'Content-Type: application/json' --data "{\"serialNumber\":\"$SerialNumber\",\"reason\":\"keyCompromise\"}"
+```
+
+### OpenSSL
+
+```shell
+export Endpoint="https://xyz.cloudfront.net/"
+curl --location --request POST ${Endpoint}'ca/issuing/revoke' --user ${Username}':'${Password} --header 'Content-Type: application/json' --data "{\"serialNumber\":\"${SerialNumber}\",\"reason\":\"keyCompromise\"}"
+```
+
+The CRL is rebuilt at once and OCSP answers from the same data.
+
+```shell
+openssl ocsp -issuer issuing.pem -cert client.pem -url "http://xyz.cloudfront.net/ocsp/issuing" -CAfile chain.pem
+```
+
+## More Information
+
+- [docs/operations.md](docs/operations.md): rotating secrets, adding CAs, users and troubleshooting
+- [docs/windows-enrollment.md](docs/windows-enrollment.md): enrolling from Windows with its own clients
+- [docs/logging.md](docs/logging.md): the ECS log schema and example queries
+- [docs/design.md](docs/design.md): the design and the reasons for it

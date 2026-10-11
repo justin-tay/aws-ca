@@ -1,6 +1,6 @@
 # aws-ca rewrite: design
 
-Status: implemented (slices 0 to 12); see the plan for notes on each.
+Status: implemented.
 The pre-existing app is not migrated (clean break). Throughout this document `main`
 means that previous implementation: the branch that was `main` before this one
 replaced it (it is kept on another branch).
@@ -297,7 +297,7 @@ is already in the endpoint paths.
   Reasons are accepted from the caller (default `unspecified`; `keyCompromise`
   allowed).
 - **Numbering**: take the CRL number before reading the list, so the higher
-  number always saw the other revocation (see the plan, slice 7).
+  number always saw the other revocation.
 - **CRL is built from the database**, not by parsing the previous CRL (which is
   what `main` does, and loses entries when two revokes race). Query the sparse
   revoked-GSI for the CA, sign a fresh CRL, and take `crlNumber` from an atomic
