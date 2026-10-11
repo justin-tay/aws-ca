@@ -12,6 +12,10 @@ a CRL for revocation.
 The keys of the CAs can be kept in Parameter Store (free), Secrets Manager (about $0.40 USD per month
 per key) or KMS (about $1 USD per month per key), chosen per CA.
 
+![Architecture: clients reach a front door that forwards to the API function; a bootstrap function creates the CAs and keys; state is in DynamoDB, S3 and Cognito; CA keys are in Parameter Store, Secrets Manager or KMS](docs/architecture.drawio.svg)
+
+The design is in [docs/system-design/](docs/system-design/index.md).
+
 ## Quick Start
 
 Requires Node.js 24 and AWS credentials for an account and region that is
