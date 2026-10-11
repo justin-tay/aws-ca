@@ -445,6 +445,7 @@ describe('SCEP enrollment with dynamic challenges', () => {
       'bob:pw': { username: 'bob', groups: ['est-client'] },
     };
     const authenticator: Authenticator = {
+      lookup: () => Promise.resolve(undefined),
       authenticate: (username, password) => Promise.resolve(users[`${username}:${password}`]),
     };
     const challengeServer = new ScepChallengeServer({
@@ -492,7 +493,10 @@ describe('SCEP enrollment with dynamic challenges', () => {
     const challengeServer = new ScepChallengeServer({
       config: harness.config,
       repository: harness.repository,
-      authenticator: { authenticate: () => Promise.resolve(undefined) },
+      authenticator: {
+        authenticate: () => Promise.resolve(undefined),
+        lookup: () => Promise.resolve(undefined),
+      },
       challenges: harness.dynamicChallenges,
     });
     const response = await challengeServer.handle({

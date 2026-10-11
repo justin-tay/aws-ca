@@ -14,6 +14,8 @@ jest.setTimeout(60_000);
 
 const PASSWORD = 'Correct-Horse-9!';
 const authenticator: Authenticator = {
+  lookup: (username): Promise<AuthenticatedUser | undefined> =>
+    Promise.resolve({ username, groups: ['est-client'] }),
   authenticate: (username, password): Promise<AuthenticatedUser | undefined> =>
     Promise.resolve(password === PASSWORD ? { username, groups: ['est-client'] } : undefined),
 };

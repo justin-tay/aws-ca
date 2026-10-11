@@ -28,6 +28,8 @@ const DAY = 24 * 60 * 60 * 1000;
 const basic = (user: string): string => `Basic ${Buffer.from(`${user}:pw`).toString('base64')}`;
 
 const authenticator: Authenticator = {
+  lookup: (username): Promise<AuthenticatedUser | undefined> =>
+    Promise.resolve({ username, groups: ['est-client'] }),
   authenticate: (username, password): Promise<AuthenticatedUser | undefined> =>
     Promise.resolve(password === 'pw' ? { username, groups: ['est-client'] } : undefined),
 };

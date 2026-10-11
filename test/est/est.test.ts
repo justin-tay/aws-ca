@@ -24,6 +24,11 @@ class FakeAuthenticator implements Authenticator {
     dave: { password: 'dave-pw', groups: [] },
   };
 
+  lookup(username: string): Promise<AuthenticatedUser | undefined> {
+    const user = this.users[username];
+    return Promise.resolve(user ? { username, groups: user.groups } : undefined);
+  }
+
   authenticate(username: string, password: string): Promise<AuthenticatedUser | undefined> {
     const user = this.users[username];
     return Promise.resolve(

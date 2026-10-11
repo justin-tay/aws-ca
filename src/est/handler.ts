@@ -135,26 +135,31 @@ export class EstServer {
   /**
    * The user a client certificate stands for: the owner recorded when this CA issued it. The front
    * door checked the chain against its trust store but not revocation, so status and expiry are
-   * checked here, against the record.
+   * checked here, against the record. The user is then looked up: a certificate does not keep
+   * renewing for someone whose account has been disabled or removed from the group.
    */
   private async userFromCertificate(pem: string, ca: CaRecord): Promise<AuthenticatedUser | undefined> {
+    let record;
     try {
       const certificate = new X509Certificate(pem);
       const issuer = new X509Certificate(ca.certificatePem);
       if (!(await certificate.verify({ publicKey: issuer, signatureOnly: true }))) {
         return undefined;
       }
-      const record = await this.deps.repository.getCertificate(
-        ca.label,
-        canonicalSerial(certificate.serialNumber),
-      );
-      if (!record || record.status !== 'valid' || record.notAfter <= this.now()) {
-        return undefined;
-      }
-      return { username: record.owner, groups: [this.deps.config.groups[record.profile]] };
+      record = await this.deps.repository.getCertificate(ca.label, canonicalSerial(certificate.serialNumber));
     } catch {
       return undefined;
     }
+    if (!record || record.status !== 'valid' || record.notAfter <= this.now()) {
+      return undefined;
+    }
+    // An AuthError (throttled, unavailable) is not caught: it must not read as "refused".
+    const current = await this.deps.authenticator.lookup(record.owner);
+    if (!current || !current.groups.includes(this.deps.config.groups[record.profile])) {
+      this.logger.warn('renewal by certificate refused', { username: record.owner, reason: 'user' });
+      return undefined;
+    }
+    return current;
   }
 
   private async enroll(request: HttpRequest, ca: CaRecord, renewal: boolean): Promise<HttpResponse> {

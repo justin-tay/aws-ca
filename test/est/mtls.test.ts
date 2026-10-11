@@ -1,6 +1,6 @@
 import { X509Certificate, X509Certificates } from '@peculiar/x509';
 import { bootstrapCas } from '../../src/bootstrap';
-import type { AuthenticatedUser, Authenticator } from '../../src/auth';
+import { AuthError, type AuthenticatedUser, type Authenticator } from '../../src/auth';
 import { resolveConfig } from '../../src/config';
 import { EstServer } from '../../src/est';
 import type { HttpResponse } from '../../src/http';
@@ -10,10 +10,27 @@ import { MemoryKeyStores } from '../support/memory-keystores';
 
 jest.setTimeout(60_000);
 
+/** What the user directory says now; each test changes it. */
+const directory = { disabled: new Set<string>(), groups: ['est-client'], unavailable: false };
+
 const authenticator: Authenticator = {
   authenticate: (username, password): Promise<AuthenticatedUser | undefined> =>
     Promise.resolve(password === 'pw' ? { username, groups: ['est-client'] } : undefined),
+  lookup: (username): Promise<AuthenticatedUser | undefined> => {
+    if (directory.unavailable) {
+      return Promise.reject(new AuthError('unavailable', 'The user directory is unavailable.'));
+    }
+    return Promise.resolve(
+      directory.disabled.has(username) ? undefined : { username, groups: directory.groups },
+    );
+  },
 };
+
+beforeEach(() => {
+  directory.disabled = new Set();
+  directory.groups = ['est-client'];
+  directory.unavailable = false;
+});
 
 const csr = async (name: string): Promise<Uint8Array> => {
   const { keys } = await clientKey();
@@ -71,6 +88,44 @@ describe('EST re-enrollment with a client certificate (mTLS)', () => {
     expect(renewed.status).toBe(200);
     expect(certificateOf(renewed).subject).toBe('CN=alice');
     expect(certificateOf(renewed).serialNumber).not.toBe(certificate.serialNumber);
+  });
+
+  it('refuses to renew for a user who has been disabled, or has left the group', async () => {
+    const { post } = await setup();
+    const certificate = certificateOf(
+      await post('/est/issuing/simpleenroll', 'alice', { basic: 'alice:pw' }),
+    );
+
+    directory.disabled.add('alice');
+    expect(
+      (await post('/est/issuing/simplereenroll', 'alice', { certificate: certificate.toString('pem') }))
+        .status,
+    ).toBe(401);
+
+    directory.disabled = new Set();
+    directory.groups = ['est-server'];
+    expect(
+      (await post('/est/issuing/simplereenroll', 'alice', { certificate: certificate.toString('pem') }))
+        .status,
+    ).toBe(401);
+
+    directory.groups = ['est-client'];
+    expect(
+      (await post('/est/issuing/simplereenroll', 'alice', { certificate: certificate.toString('pem') }))
+        .status,
+    ).toBe(200);
+  });
+
+  it('says the service is unavailable, not that the certificate is bad, when the directory is down', async () => {
+    const { post } = await setup();
+    const certificate = certificateOf(
+      await post('/est/issuing/simpleenroll', 'alice', { basic: 'alice:pw' }),
+    );
+    directory.unavailable = true;
+    const response = await post('/est/issuing/simplereenroll', 'alice', {
+      certificate: certificate.toString('pem'),
+    });
+    expect(response.status).toBe(503);
   });
 
   it('does not accept a certificate in place of a password for a first enrollment', async () => {

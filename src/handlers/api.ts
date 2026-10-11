@@ -137,6 +137,7 @@ function createRuntime(): Runtime {
   const authenticator = new CognitoAuthenticator({
     client: new CognitoIdentityProviderClient({}),
     clientId: required('USER_POOL_CLIENT_ID'),
+    userPoolId: required('USER_POOL_ID'),
   });
   const logger = createLogger();
   const store = new S3CrlStore({ client: new S3Client({}), bucket: required('CRL_BUCKET') });

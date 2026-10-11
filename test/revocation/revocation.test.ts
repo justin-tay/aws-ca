@@ -26,6 +26,10 @@ const USERS: Record<string, { password: string; groups: string[] }> = {
 };
 
 const authenticator: Authenticator = {
+  lookup: (username): Promise<AuthenticatedUser | undefined> => {
+    const user = USERS[username];
+    return Promise.resolve(user ? { username, groups: user.groups } : undefined);
+  },
   authenticate: (username, password): Promise<AuthenticatedUser | undefined> => {
     const user = USERS[username];
     return Promise.resolve(user?.password === password ? { username, groups: user.groups } : undefined);

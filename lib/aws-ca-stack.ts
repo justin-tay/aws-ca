@@ -216,6 +216,16 @@ export class AwsCaStack extends Stack {
     for (const group of new Set(groupNames)) {
       this.userPool.addGroup(`Group${group}`, { groupName: group });
     }
+    // Renewal by certificate looks the user up, so a disabled or de-grouped user cannot keep
+    // renewing. Read only, and only this pool; sign-in itself needs no permission.
+    this.apiRole.addToPolicy(
+      new PolicyStatement({
+        sid: 'UserLookup',
+        effect: Effect.ALLOW,
+        actions: ['cognito-idp:AdminGetUser', 'cognito-idp:AdminListGroupsForUser'],
+        resources: [this.userPool.userPoolArn],
+      }),
+    );
     this.userPoolClient = this.userPool.addClient('EstClient', {
       authFlows: { userPassword: true },
       generateSecret: false,
@@ -250,6 +260,7 @@ export class AwsCaStack extends Stack {
         NAME_PREFIX: config.namePrefix,
         CONFIG: apiConfig,
         USER_POOL_CLIENT_ID: this.userPoolClient.userPoolClientId,
+        USER_POOL_ID: this.userPool.userPoolId,
         CRL_BUCKET: this.crlBucket.bucketName,
         ...(this.customerManagedKey ? { CUSTOMER_MANAGED_KEY_ARN: this.customerManagedKey.keyArn } : {}),
         // Behind CloudFront every request must carry the secret, and the client certificate headers

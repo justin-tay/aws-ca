@@ -21,4 +21,10 @@ export class AuthError extends Error {
 export interface Authenticator {
   /** Returns the user, or `undefined` when the credentials are wrong. Throws {@link AuthError} otherwise. */
   authenticate(username: string, password: string): Promise<AuthenticatedUser | undefined>;
+  /**
+   * The user as the directory has it now, without a password: for a request authenticated by
+   * something else (a certificate being renewed), which must not outlive the user's account.
+   * Returns `undefined` when the user does not exist or is disabled. Throws {@link AuthError} otherwise.
+   */
+  lookup(username: string): Promise<AuthenticatedUser | undefined>;
 }

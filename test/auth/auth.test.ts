@@ -1,4 +1,6 @@
 import {
+  AdminGetUserCommand,
+  AdminListGroupsForUserCommand,
   CognitoIdentityProviderClient,
   InitiateAuthCommand,
 } from '@aws-sdk/client-cognito-identity-provider';
@@ -34,6 +36,56 @@ describe('parseBasicAuthorization', () => {
 
 const authenticator = (): CognitoAuthenticator =>
   new CognitoAuthenticator({ client: new CognitoIdentityProviderClient({}), clientId: 'client-id' });
+
+const directory = (): CognitoAuthenticator =>
+  new CognitoAuthenticator({
+    client: new CognitoIdentityProviderClient({}),
+    clientId: 'client-id',
+    userPoolId: 'pool-id',
+  });
+
+describe('CognitoAuthenticator lookup', () => {
+  const cognito = mockClient(CognitoIdentityProviderClient);
+  beforeEach(() => cognito.reset());
+  it('returns the canonical name and every group of an enabled, confirmed user', async () => {
+    cognito.on(AdminGetUserCommand).resolves({ Username: 'alice', Enabled: true, UserStatus: 'CONFIRMED' });
+    cognito
+      .on(AdminListGroupsForUserCommand)
+      .resolvesOnce({ Groups: [{ GroupName: 'est-client' }], NextToken: 'more' })
+      .resolvesOnce({ Groups: [{ GroupName: 'est-server' }] });
+    await expect(directory().lookup('Alice')).resolves.toEqual({
+      username: 'alice',
+      groups: ['est-client', 'est-server'],
+    });
+    expect(cognito.commandCalls(AdminGetUserCommand)[0].args[0].input).toEqual({
+      UserPoolId: 'pool-id',
+      Username: 'Alice',
+    });
+  });
+
+  it('returns nothing for a disabled user, an unconfirmed one, or one that does not exist', async () => {
+    cognito.on(AdminGetUserCommand).resolves({ Username: 'a', Enabled: false, UserStatus: 'CONFIRMED' });
+    await expect(directory().lookup('a')).resolves.toBeUndefined();
+    cognito
+      .on(AdminGetUserCommand)
+      .resolves({ Username: 'a', Enabled: true, UserStatus: 'FORCE_CHANGE_PASSWORD' });
+    await expect(directory().lookup('a')).resolves.toBeUndefined();
+    cognito.on(AdminGetUserCommand).rejects(Object.assign(new Error('x'), { name: 'UserNotFoundException' }));
+    await expect(directory().lookup('a')).resolves.toBeUndefined();
+  });
+
+  it('refuses everyone when it has no pool, and reports an outage as one', async () => {
+    await expect(authenticator().lookup('alice')).resolves.toBeUndefined();
+    cognito
+      .on(AdminGetUserCommand)
+      .rejects(Object.assign(new Error('x'), { name: 'InternalErrorException' }));
+    await expect(directory().lookup('alice')).rejects.toMatchObject({ code: 'unavailable' });
+    cognito
+      .on(AdminGetUserCommand)
+      .rejects(Object.assign(new Error('x'), { name: 'TooManyRequestsException' }));
+    await expect(directory().lookup('alice')).rejects.toMatchObject({ code: 'rate-limited' });
+  });
+});
 
 describe('CognitoAuthenticator', () => {
   const cognito = mockClient(CognitoIdentityProviderClient);

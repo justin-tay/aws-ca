@@ -307,15 +307,21 @@ describe('authentication and the endpoint', () => {
     );
     const variables = api?.Properties.Environment.Variables as Record<string, unknown>;
     expect(Object.keys(variables)).toEqual(
-      expect.arrayContaining(['CONFIG', 'TABLE_NAME', 'NAME_PREFIX', 'USER_POOL_CLIENT_ID']),
+      expect.arrayContaining(['CONFIG', 'TABLE_NAME', 'NAME_PREFIX', 'USER_POOL_CLIENT_ID', 'USER_POOL_ID']),
     );
     expect(JSON.parse(variables.CONFIG as string)).toMatchObject({ groups: { client: 'est-client' } });
   });
 
-  it('does not need to be allowed to call Cognito: InitiateAuth is unauthenticated', () => {
+  it('may read users in the pool, and nothing more of Cognito: sign-in is unauthenticated', () => {
     const stack = stackFor();
     expect(
       allows(statementsOf(stack, 'api'))
+        .flatMap(actionsOf)
+        .filter((action) => action.startsWith('cognito')),
+    ).toEqual(['cognito-idp:AdminGetUser', 'cognito-idp:AdminListGroupsForUser']);
+    // The bootstrap has no business with users at all.
+    expect(
+      allows(statementsOf(stack, 'bootstrap'))
         .flatMap(actionsOf)
         .filter((action) => action.startsWith('cognito')),
     ).toEqual([]);
