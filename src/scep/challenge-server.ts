@@ -34,36 +34,38 @@ export function routeOf(path: string): Route | undefined {
 
 const NO_STORE = { 'cache-control': 'no-store' };
 
-/** The thumbprint as NDES shows it: SHA-1 of the CA certificate, in groups of eight hex digits. */
+/** The thumbprint as NDES shows it: the MD5 of the CA certificate, in four groups of eight hex digits. */
 function thumbprint(certificate: X509Certificate): string {
-  const hex = createHash('sha1').update(new Uint8Array(certificate.rawData)).digest('hex').toUpperCase();
-  return (hex.match(/.{1,8}/g) ?? []).join(' ');
+  const hex = createHash('md5').update(new Uint8Array(certificate.rawData)).digest('hex').toUpperCase();
+  return (hex.match(/.{8}/g) ?? []).join(' ');
 }
 
-/** The page NDES serves; clients and MDMs read the challenge out of it, so the wording is kept. */
+/**
+ * The page a Windows Server 2025 NDES serves, reproduced as it was captured (one line, the same
+ * wording and tags, spaces inside the bold tags), because MDMs and tools read the password out of
+ * it. The "locPage" ids and the fwlink are part of the original.
+ */
 function ndesPage(challenge: string, caThumbprint: string, validityMinutes: number): string {
-  return [
-    '<HTML>',
-    '<HEAD>',
-    '<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=UTF-8">',
-    '<TITLE>Network Device Enrollment Service</TITLE>',
-    '</HEAD>',
-    '<BODY BGCOLOR="#FFFFFF">',
-    '<FONT FACE="Arial" SIZE=2>',
-    '<H3>Network Device Enrollment Service</H3>',
-    'Network Device Enrollment Service allows you to obtain certificates for routers or other ' +
-      'network devices using the Simple Certificate Enrollment Protocol (SCEP).',
-    '<P>To complete certificate enrollment for your network device you will need the following information:',
-    `<P>The thumbprint (hash value) for the CA certificate is: <B>${caThumbprint}</B>`,
-    `<P>The enrollment challenge password is: <B>${challenge}</B>`,
-    `<P>This password can be used only once and will expire within ${validityMinutes} minutes.`,
-    '<P>Each time this page is refreshed a new challenge password is created.',
-    '<P>Please note that the challenge password is case sensitive.',
-    '</FONT>',
-    '</BODY>',
-    '</HTML>',
-    '',
-  ].join('\r\n');
+  return (
+    '<HTML><Head><Meta HTTP-Equiv="Content-Type" Content="text/html; charset=UTF-8">' +
+    '<Title>Network Device Enrollment Service</Title></Head>' +
+    '<Body BgColor=#FFFFFF><Font ID=locPageFont Face="Arial">' +
+    '<Table Border=0 CellSpacing=0 CellPadding=4 Width=100% BgColor=#008080><TR><TD>' +
+    '<Font ID=locPageTitleFont Face="Arial" Size=-1 Color=#FFFFFF>' +
+    '<LocID ID=locMSCertSrv>Network Device Enrollment Service</LocID></Font></TD></TR></Table>' +
+    '<P ID=locPageTitle> Network Device Enrollment Service allows you to obtain certificates for ' +
+    'routers or other network devices using the Simple Certificate Enrollment Protocol (SCEP). </P>' +
+    '<P> To complete certificate enrollment for your network device you will need the following ' +
+    'information: ' +
+    `<P> The thumbprint (hash value) for the CA certificate is: <B> ${caThumbprint} </B> ` +
+    `<P> The enrollment challenge password is: <B> ${challenge} </B> ` +
+    `<P> This password can be used only once and will expire within ${validityMinutes} minutes. ` +
+    '<P> Each enrollment requires a new challenge password. You can refresh this web page to ' +
+    'obtain a new challenge password. </P> ' +
+    '<P ID=locPageDesc> For more information see ' +
+    '<A HREF=http://go.microsoft.com/fwlink/?LinkId=67852>' +
+    'Using Network Device Enrollment Service </A>. </P></Font></Body></HTML>\r\n'
+  );
 }
 
 /** Issues dynamic SCEP challenges to callers in the SCEP group (or the admin group). */

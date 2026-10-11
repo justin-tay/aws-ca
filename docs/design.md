@@ -506,7 +506,9 @@ challenge); NDES calls a dynamic challenge a one-time password.
   `Cache-Control: no-store`, because PSCertificateEnrollment's `Get-NDESOTP`
   decodes the body as UTF-16 and takes the first run of `PasswordLength * 2`
   (default 16) hex digits; so no other such run precedes the password (the
-  thumbprint is in groups of eight). `POST /ca/<ca>/scep/challenge` returns JSON.
+  thumbprint is the MD5 of the CA certificate, in four groups of eight). The
+  page is a copy of what Windows Server 2025 serves, captured by the user.
+  `POST /ca/<ca>/scep/challenge` returns JSON.
   A GET that mints a challenge is acceptable here only because it is
   authenticated, never cached and capped.
 - **Failure behavior.** A wrong, used, expired, unknown or differently bound

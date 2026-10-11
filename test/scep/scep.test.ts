@@ -446,7 +446,7 @@ describe('SCEP enrollment with dynamic challenges', () => {
     const html = Buffer.from(page?.body ?? '', 'base64').toString('utf16le');
     expect(html.startsWith('\uFEFF')).toBe(true);
     expect(page?.headers['cache-control']).toBe('no-store');
-    const scraped = /The enrollment challenge password is: <B>([0-9A-F]{16})<\/B>/.exec(html);
+    const scraped = /The enrollment challenge password is: <B> ([0-9A-F]{16}) <\/B>/.exec(html);
     // Get-NDESOTP takes the first run of 16 hex digits: nothing before the challenge may be one.
     expect(/[A-F0-9]{16}/.exec(html)?.[0]).toBe(scraped?.[1]);
     expect(scraped).not.toBeNull();
