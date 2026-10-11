@@ -43,9 +43,10 @@ function thumbprint(certificate: X509Certificate): string {
 /**
  * The page a Windows Server 2025 NDES serves, reproduced as it was captured (one line, the same
  * wording and tags, spaces inside the bold tags), because MDMs and tools read the password out of
- * it. The "locPage" ids and the fwlink are part of the original.
+ * it. The "locPage" ids, the fwlink, the double space before the link and the NUL after the final
+ * line break are part of the original (checked byte for byte against a capture).
  */
-function ndesPage(challenge: string, caThumbprint: string, validityMinutes: number): string {
+export function ndesPage(challenge: string, caThumbprint: string, validityMinutes: number): string {
   return (
     '<HTML><Head><Meta HTTP-Equiv="Content-Type" Content="text/html; charset=UTF-8">' +
     '<Title>Network Device Enrollment Service</Title></Head>' +
@@ -62,9 +63,9 @@ function ndesPage(challenge: string, caThumbprint: string, validityMinutes: numb
     `<P> This password can be used only once and will expire within ${validityMinutes} minutes. ` +
     '<P> Each enrollment requires a new challenge password. You can refresh this web page to ' +
     'obtain a new challenge password. </P> ' +
-    '<P ID=locPageDesc> For more information see ' +
+    '<P ID=locPageDesc> For more information see  ' +
     '<A HREF=http://go.microsoft.com/fwlink/?LinkId=67852>' +
-    'Using Network Device Enrollment Service </A>. </P></Font></Body></HTML>\r\n'
+    'Using Network Device Enrollment Service </A>. </P></Font></Body></HTML>\r\n\0'
   );
 }
 

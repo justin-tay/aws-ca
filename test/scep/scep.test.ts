@@ -6,7 +6,9 @@ import {
   randomBytes,
   constants as cryptoConstants,
 } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
+import { join } from 'node:path';
 import { AsnConvert, OctetString } from '@peculiar/asn1-schema';
 import {
   Attribute,
@@ -52,6 +54,7 @@ import {
   parsePkiMessage,
   type ChallengeProvider,
 } from '../../src/scep';
+import { ndesPage } from '../../src/scep/challenge-server';
 import { encryptEnvelope } from '../../src/scep/cms';
 import { derOctet, derPrintable, derUtcTime, readTlv, tlv } from '../../src/scep/der';
 import type { HttpRequest, HttpResponse } from '../../src/http';
@@ -344,6 +347,20 @@ const enrollWith = async (
 
 const auth = (user: string): Record<string, string> => ({
   authorization: `Basic ${Buffer.from(`${user}:pw`).toString('base64')}`,
+});
+
+describe('the NDES-style page', () => {
+  it('is byte for byte what Windows Server 2025 serves, apart from the values', () => {
+    // test/scep/fixtures/ndes-2025.bin is a capture of /certsrv/mscep_admin/ (Basic authentication,
+    // fetched with curl), with the one-time password replaced by a placeholder.
+    const fixture = readFileSync(join(__dirname, 'fixtures', 'ndes-2025.bin'));
+    const ours = Buffer.from(
+      `﻿${ndesPage('0123456789ABCDEF', 'CCFA6B25 8C5A3753 D98EB606 E4E9734B', 60)}`,
+      'utf16le',
+    );
+    expect(ours.length).toBe(fixture.length);
+    expect(ours.equals(fixture)).toBe(true);
+  });
 });
 
 describe('SCEP enrollment with dynamic challenges', () => {

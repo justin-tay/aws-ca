@@ -508,8 +508,10 @@ challenge); NDES calls a dynamic challenge a one-time password.
   (default 16) hex digits; so no other such run precedes the password (the
   thumbprint is the MD5 of the CA certificate, in four groups of eight). The
   page is a copy of what Windows Server 2025 serves, captured by the user, and
-  the encoding was confirmed against that server (Basic authentication enabled,
-  fetched with curl: `Content-Type: text/html`, 2510 bytes, UTF-16LE with a BOM).
+  it was then checked against that server byte for byte (Basic authentication
+  enabled, fetched with curl: `Content-Type: text/html`, 2510 bytes, UTF-16LE with a
+  BOM, ending in a line break and a NUL). `test/scep/fixtures/ndes-2025.bin` is that
+  capture with the password replaced, and a test compares our page with it.
   `POST /ca/<ca>/scep/challenge` returns JSON.
   A GET that mints a challenge is acceptable here only because it is
   authenticated, never cached and capped.
