@@ -15,6 +15,7 @@
     "cdk:diff": "cdk diff",
     "cdk:deploy": "cdk deploy",
     "cdk:destroy": "cdk destroy",
+    "local:scep": "tsx scripts/local-scep.ts",
     "test:aws": "tsx scripts/test-aws.ts",
     "test:aws:stack": "tsx scripts/test-aws.ts --yes stack",
     "test:aws:cloudfront": "tsx scripts/test-aws.ts --yes cloudfront"
