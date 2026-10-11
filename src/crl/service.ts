@@ -19,6 +19,19 @@ export interface CrlServiceDependencies {
   now?: () => Date;
 }
 
+/**
+ * The CAs whose CRL this deployment can keep fresh. An offline root's key has been handed over and
+ * removed, so its CRL cannot be signed again: trying would fail every daily run and every update.
+ * Nothing depends on it, since the root signs only subordinate CAs, whose certificates carry no
+ * CRL distribution point.
+ */
+export function maintainedCrlLabels(
+  config: { rootCa: { keyHandling: 'retain' | 'offline' } },
+  labels: string[],
+): string[] {
+  return config.rootCa.keyHandling === 'offline' ? labels.filter((label) => label !== 'root') : labels;
+}
+
 export interface CrlRefreshResult {
   caLabel: string;
   crlNumber: number;

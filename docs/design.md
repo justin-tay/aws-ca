@@ -240,6 +240,12 @@ the key. The stack output names the parameter; the operator reads it, stores it
 offline and deletes it. Nothing logs the value. Signing a _new_ subordinate CA
 later needs the key restored first, and the bootstrap says so.
 
+An offline root's own CRL is therefore not kept fresh: its key is gone, so the daily
+run and the bootstrap leave it out (`maintainedCrlLabels`) instead of failing every
+time. Nothing depends on it, because the root signs only subordinate CAs, whose
+certificates carry no CRL distribution point. The issuing CAs' CRLs are refreshed
+as usual.
+
 **Removal.** `removalPolicy: retain` (default) keeps the table and every key
 when the stack is deleted, because deleting them loses the CA. `destroy` removes
 them, including the keys the bootstrap made, for experiments.

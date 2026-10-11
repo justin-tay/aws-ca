@@ -11,7 +11,7 @@ import {
   teardownCas,
 } from '../bootstrap';
 import type { ResolvedConfig } from '../config';
-import { CrlService, S3CrlStore } from '../crl';
+import { CrlService, S3CrlStore, maintainedCrlLabels } from '../crl';
 import { createLogger } from '../log';
 import { OperationalKeyService } from '../operational';
 import {
@@ -156,7 +156,7 @@ async function scheduledMaintenance(): Promise<void> {
     store: new S3CrlStore({ client: new S3Client({}), bucket: process.env.CRL_BUCKET ?? '' }),
     logger,
   });
-  const summary = await crl.refreshAll(['root']);
+  const summary = await crl.refreshAll(maintainedCrlLabels(scheduledConfig, ['root']));
   if (summary.failed.length > 0) {
     throw new Error(`The root CRL could not be refreshed: ${summary.failed[0].message}`);
   }
@@ -266,7 +266,12 @@ export const handler = async (
       store: new S3CrlStore({ client: new S3Client({}), bucket }),
       logger: createLogger(),
     });
-    const summary = await crl.refreshAll(result.cas.map((ca) => ca.label));
+    const summary = await crl.refreshAll(
+      maintainedCrlLabels(
+        config,
+        result.cas.map((ca) => ca.label),
+      ),
+    );
     if (summary.failed.length > 0) {
       throw new Error(`A CRL could not be published: ${summary.failed[0].message}`);
     }
