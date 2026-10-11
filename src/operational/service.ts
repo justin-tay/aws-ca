@@ -31,6 +31,15 @@ const DEFAULT_VALIDITY_DAYS = 365;
 const ROTATE_WITHIN_DAYS = 30;
 const OCSP_KEY_ALGORITHM: KeyAlgorithm = { type: 'ecdsa', curve: 'P-256' };
 
+/**
+ * The certificate in use: the newest that is active and has not ended. A rotation leaves the old
+ * one active for a moment, so there may be two, and the newest is used.
+ */
+const newestCurrent = (records: OperationalRecord[], now: Date): OperationalRecord | undefined =>
+  records
+    .filter((record) => record.active && record.notAfter > now)
+    .toSorted((a, b) => b.sequence - a.sequence)[0];
+
 export interface OperationalDependencies {
   config: Pick<ResolvedConfig, 'operationalKey' | 'ocsp' | 'subordinateCas'>;
   repository: CaRepository;
@@ -112,9 +121,7 @@ export class OperationalKeyService {
     const threshold = Math.min(ROTATE_WITHIN_DAYS, validityDays / 3) * DAY_MS;
 
     const existing = await repository.listOperationalCertificates(label);
-    const current = existing
-      .filter((record) => record.active && record.notAfter > now)
-      .toSorted((a, b) => b.sequence - a.sequence)[0];
+    const current = newestCurrent(existing, now);
     if (current && current.notAfter.getTime() - now.getTime() > threshold) {
       return { caLabel, purpose, action: 'kept', sequence: current.sequence, notAfter: current.notAfter };
     }
@@ -233,10 +240,7 @@ export class OperationalKeyService {
   async decryptingResponder(caLabel: string): Promise<DecryptingResponder | undefined> {
     const label = operationalLabel(caLabel, 'ops');
     const now = this.now();
-    const records = await this.deps.repository.listOperationalCertificates(label);
-    const record = records
-      .filter((candidate) => candidate.active && candidate.notAfter > now)
-      .toSorted((a, b) => b.sequence - a.sequence)[0];
+    const record = newestCurrent(await this.deps.repository.listOperationalCertificates(label), now);
     if (!record) {
       return undefined;
     }
@@ -277,10 +281,7 @@ export class OperationalKeyService {
   async responder(caLabel: string, purpose: Purpose): Promise<Responder | undefined> {
     const label = operationalLabel(caLabel, purpose);
     const now = this.now();
-    const records = await this.deps.repository.listOperationalCertificates(label);
-    const record = records
-      .filter((candidate) => candidate.active && candidate.notAfter > now)
-      .toSorted((a, b) => b.sequence - a.sequence)[0];
+    const record = newestCurrent(await this.deps.repository.listOperationalCertificates(label), now);
     if (!record) {
       return undefined;
     }
