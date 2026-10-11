@@ -349,6 +349,23 @@ describe('delegated keys', () => {
   });
 });
 
+const canList = (stack: AwsCaStack): boolean =>
+  allows(statementsOf(stack, 'bootstrap')).some((s) => actionsOf(s).includes('s3:ListBucket'));
+
+describe('the bootstrap role and the trust bundles', () => {
+  // The delete handler lists the trust prefix to empty it, so the role may list it exactly where
+  // bundles can exist. A function-url stack once failed to delete because it asked without being
+  // allowed (found on a deployed stack).
+  it('may not list the bucket with the function-url front door', () => {
+    expect(canList(stackFor({ frontDoor: { type: 'function-url' } }))).toBe(false);
+  });
+
+  it('may list it with CloudFront, and with mTLS', () => {
+    expect(canList(stackFor({ frontDoor: { type: 'cloudfront' } }))).toBe(true);
+    expect(canList(stackFor({ frontDoor: { type: 'cloudfront', mtls: true } }))).toBe(true);
+  });
+});
+
 describe('SCEP', () => {
   it('lets the runtime read the challenge, and nothing writes it but the bootstrap', () => {
     const stack = stackFor();

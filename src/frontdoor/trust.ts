@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import type { ResolvedFrontDoor } from '../config';
 import {
   DeleteObjectCommand,
   ListObjectsV2Command,
@@ -7,6 +8,14 @@ import {
 } from '@aws-sdk/client-s3';
 
 export const TRUST_PREFIX = 'trust/';
+
+/**
+ * Whether this front door can have put trust bundles in the CRL bucket, and so whether the
+ * bootstrap is given the right to list and remove them. The stack and the delete handler both ask
+ * this, so one cannot do what the other has not been permitted.
+ */
+export const mayHaveTrustBundles = (frontDoor: ResolvedFrontDoor): boolean =>
+  frontDoor.type === 'cloudfront' || (frontDoor.type !== 'function-url' && frontDoor.mtls);
 
 export interface TrustBundle {
   pem: string;

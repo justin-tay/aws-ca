@@ -17,6 +17,7 @@ import { OperationalKeyService } from '../operational';
 import {
   buildTrustBundle,
   ensureOriginSecret,
+  mayHaveTrustBundles,
   originVerifyName,
   removeTrustBundles,
   writeTrustBundle,
@@ -198,7 +199,10 @@ export const handler = async (
       // The CRL bucket is deleted with the stack and must be empty by then.
       const bucket = process.env.CRL_BUCKET;
       if (bucket !== undefined) {
-        await removeTrustBundles(new S3Client({}), bucket);
+        // Only where this front door could have written some, and so where the role may list them.
+        if (mayHaveTrustBundles(config.frontDoor)) {
+          await removeTrustBundles(new S3Client({}), bucket);
+        }
         const store = new S3CrlStore({ client: new S3Client({}), bucket });
         for (const label of ['root', ...config.subordinateCas.map((ca) => ca.label)]) {
           // oxlint-disable-next-line no-await-in-loop

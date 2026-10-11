@@ -7,6 +7,7 @@ export {
 } from './origin';
 export {
   buildTrustBundle,
+  mayHaveTrustBundles,
   removeTrustBundles,
   TRUST_PREFIX,
   writeTrustBundle,

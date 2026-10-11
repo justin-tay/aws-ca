@@ -3,6 +3,7 @@ import { mockClient } from 'aws-sdk-client-mock';
 import {
   buildTrustBundle,
   ensureOriginSecret,
+  mayHaveTrustBundles,
   originVerifyName,
   publicUrlsName,
   SsmPublicUrls,
@@ -21,6 +22,16 @@ describe('trust bundles', () => {
   it('changes the key when a CA is added, so a trust store is updated rather than left stale', () => {
     expect(buildTrustBundle([root]).key).not.toBe(buildTrustBundle([root, issuing]).key);
     expect(buildTrustBundle([root, issuing]).key).toBe(buildTrustBundle([root, issuing]).key);
+  });
+});
+
+describe('which front doors can have trust bundles', () => {
+  it('is only CloudFront, and a front door with mTLS', () => {
+    expect(mayHaveTrustBundles({ type: 'function-url' })).toBe(false);
+    expect(mayHaveTrustBundles({ type: 'cloudfront', mtls: false })).toBe(true);
+    expect(mayHaveTrustBundles({ type: 'http-api', mtls: false })).toBe(false);
+    expect(mayHaveTrustBundles({ type: 'http-api', mtls: true })).toBe(true);
+    expect(mayHaveTrustBundles({ type: 'rest-api', endpointType: 'regional', mtls: true })).toBe(true);
   });
 });
 

@@ -22,7 +22,7 @@ import { Provider } from 'aws-cdk-lib/custom-resources';
 import type { Construct } from 'constructs';
 import type { ResolvedConfig } from '../src/config';
 import { TABLE_SCHEMA } from '../src/repo';
-import { originVerifyName, publicUrlsName } from '../src/frontdoor';
+import { mayHaveTrustBundles, originVerifyName, publicUrlsName } from '../src/frontdoor';
 import { ApiGatewayFrontDoor } from './api-gateway-front-door';
 import { CloudFrontFrontDoor } from './cloudfront-front-door';
 import { customerManagedKeyStatement, keyAccessStatements, rootKeyDenyStatements } from './permissions';
@@ -301,7 +301,7 @@ export class AwsCaStack extends Stack {
         }),
       );
     }
-    if (cloudfront || usesMtls) {
+    if (mayHaveTrustBundles(config.frontDoor)) {
       this.bootstrapRole.addToPolicy(
         new PolicyStatement({
           sid: 'TrustBundleList',
