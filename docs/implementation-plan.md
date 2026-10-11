@@ -645,8 +645,16 @@ A whole-repo review against the design found drift and gaps; fixed in later comm
 - Docs: README and design now say what is unverified (API Gateway mTLS is not
   optional), that the origin secret is visible in the distribution, and that a
   KMS-only deployment also needs `ocsp.signing`.
-- Still open from that review (standards, not behavior): HTTP boilerplate and
-  label/CN validation are duplicated across servers; a few large files.
+- Standards refactor: logging is ECS from a closed catalogue (`src/log.ts`,
+  [logging.md](logging.md)); the HTTP boilerplate (media type, JSON bodies, binary
+  responses, constant-time compare, body limits) is in `src/http/helpers.ts`; the
+  CA chain, CN validation, CA label pattern, hashing and key generation ids each
+  have one home; the config resolver is split into validators, patterns, the front
+  door and the entry point.
+- Left as they are, deliberately: the per-server error handling (OCSP answers with
+  an OCSP error, SCEP with a CertRep, so they are not the same code), the
+  conditional-spread pattern, and `scep/cms.ts` and `repo/dynamodb.ts`, which are
+  long because the formats they implement are.
 
 ## Cross-slice risks
 
