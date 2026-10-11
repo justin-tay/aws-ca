@@ -103,13 +103,21 @@ configure more, pass `-PasswordLength <lengthBytes>`.
 message with a throwaway RSA key under `CN=SCEP Protocol Certificate`, so the answer can be
 encrypted to it. (Verified against a local server on Windows 11 with PSCertificateEnrollment 1.0.12.)
 
-**Renewing an ECDSA certificate with `-SigningCert` does not work from Windows' client.** The server
-accepts the request (it reads ECDSA signers, including the `id-ecPublicKey` signature algorithm
-Windows states) and answers with ECDH key agreement, which OpenSSL opens. Windows then fails in
-`ProcessResponseMessage` with `NTE_PERM` (`0x80090010`). The likely cause is that a CNG key of
-algorithm ECDSA can sign but cannot take part in key agreement, so Windows cannot open an answer
-addressed to it; this was not confirmed beyond the error. To replace an ECDSA certificate from
-Windows, enroll again with a new challenge; an RSA certificate renews with `-SigningCert` as above.
+**Renewing an ECDSA certificate with `-SigningCert` does not work from Windows' client, against
+any CA.** The server accepts the request (it reads ECDSA signers, including the `id-ecPublicKey`
+signature algorithm Windows states) and answers with ECDH key agreement, which OpenSSL opens.
+Windows then fails in `ProcessResponseMessage` with `NTE_PERM` (`0x80090010`).
+
+The cause is in Windows: the key it generates for `ECDSA_P256` has CNG algorithm group `ECDSA`, and
+CNG refuses to use such a key for key agreement (`ECDiffieHellmanCng` rejects it: "must have an
+algorithm group of ECDiffieHellman"). It is not this server's answer: a real Windows Server NDES
+answers an ECDSA renewal the same way (ECDH, `dhSinglePass-stdDH-sha1kdf`) and Windows' client fails
+on it with the same `NTE_PERM`; changing this server's KDF and wrap to NDES's made no difference,
+and neither did renewing with an RSA, `ECDH_P256` or `ECDSA_P384` new key. (Windows 11 and
+PSCertificateEnrollment 1.0.12, against this server and against NDES.)
+
+To replace an ECDSA certificate from Windows, enroll again with a new challenge; an RSA certificate
+renews with `-SigningCert` as above. Enrollment with an ECDSA key, over `POST` and `GET`, works.
 
 EST, with a Cognito user in the `est-client` group (the CN must be the user name):
 
