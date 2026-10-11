@@ -1,15 +1,20 @@
 import { GetParameterCommand, PutParameterCommand, SSMClient } from '@aws-sdk/client-ssm';
 import { mockClient } from 'aws-sdk-client-mock';
 import {
+  admit,
   buildTrustBundle,
   ensureOriginSecret,
   mayHaveTrustBundles,
+  noOriginSecret,
   originSecretVersionOf,
   originVerifyName,
   publicUrlsName,
   rotateOriginSecret,
+  SsmOriginSecret,
   SsmPublicUrls,
+  type AdmitOptions,
 } from '../src/frontdoor';
+import type { HttpRequest } from '../src/http';
 
 describe('trust bundles', () => {
   const root = '-----BEGIN CERTIFICATE-----\nAAA\n-----END CERTIFICATE-----';
@@ -135,5 +140,123 @@ describe('the published URLs', () => {
     ssm.on(GetParameterCommand).rejects(new Error('boom'));
     const urls = new SsmPublicUrls(new SSMClient({}), '/p/internal/public-urls');
     await expect(urls.get()).rejects.toThrow('boom');
+  });
+});
+
+describe('the origin secret source', () => {
+  const ssm = mockClient(SSMClient);
+  beforeEach(() => ssm.reset());
+
+  it('reads the parameter once, with decryption', async () => {
+    ssm.on(GetParameterCommand).resolves({ Parameter: { Value: 'secret' } });
+    const source = new SsmOriginSecret(new SSMClient({}), '/p/internal/origin-verify');
+    await expect(source.get()).resolves.toBe('secret');
+    await source.get();
+    const calls = ssm.commandCalls(GetParameterCommand);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].args[0].input).toEqual({ Name: '/p/internal/origin-verify', WithDecryption: true });
+  });
+
+  it.each([[{ Parameter: {} }], [{ Parameter: { Value: '' } }], [{}]])(
+    'fails closed rather than report no secret for %j',
+    async (response) => {
+      ssm.on(GetParameterCommand).resolves(response);
+      const source = new SsmOriginSecret(new SSMClient({}), '/p/internal/origin-verify');
+      await expect(source.get()).rejects.toThrow('has no value');
+    },
+  );
+
+  it('does not remember a failed read', async () => {
+    ssm
+      .on(GetParameterCommand)
+      .rejectsOnce(new Error('throttled'))
+      .resolves({ Parameter: { Value: 'secret' } });
+    const source = new SsmOriginSecret(new SSMClient({}), '/p/internal/origin-verify');
+    await expect(source.get()).rejects.toThrow('throttled');
+    await expect(source.get()).resolves.toBe('secret');
+  });
+});
+
+const VIEWER = '-----BEGIN CERTIFICATE-----\nMII\n-----END CERTIFICATE-----\n';
+const request = (headers: Record<string, string> = {}): HttpRequest => ({
+  method: 'POST',
+  path: '/est/issuing/simplereenroll',
+  headers,
+  body: new Uint8Array(),
+  baseUrl: 'https://function-url.example',
+});
+const source = (value: string | undefined) => ({ get: jest.fn(() => Promise.resolve(value)) });
+const urls = (value: { base: string; revocation?: string } | undefined) => ({
+  get: jest.fn(() => Promise.resolve(value)),
+});
+const options = (extra: Partial<AdmitOptions> = {}): AdmitOptions => ({
+  originSecret: source('s3cret'),
+  trustViewerCertificateHeader: true,
+  ...extra,
+});
+const through = { 'x-origin-verify': 's3cret' };
+
+describe('admitting a request from the front door', () => {
+  it('refuses a request without the secret, and reads nothing else', async () => {
+    const published = urls({ base: 'https://pki.example' });
+    const wrong: Record<string, string>[] = [{}, { 'x-origin-verify': 'wrong' }];
+    for (const headers of wrong) {
+      // oxlint-disable-next-line no-await-in-loop
+      const result = await admit(
+        request({ ...headers, 'cloudfront-viewer-cert-pem': encodeURIComponent(VIEWER) }),
+        options({ publicUrls: published }),
+      );
+      expect(result).toMatchObject({ status: 403 });
+    }
+    expect(published.get).not.toHaveBeenCalled();
+  });
+
+  it('passes everything when the front door adds no secret, and believes no header', async () => {
+    const result = await admit(
+      request({ 'cloudfront-viewer-cert-pem': encodeURIComponent(VIEWER) }),
+      options({ originSecret: noOriginSecret }),
+    );
+    expect(result).toMatchObject({ method: 'POST' });
+    expect(result).not.toHaveProperty('viewerCertificatePem');
+  });
+
+  it('puts the published addresses in place of the function URL', async () => {
+    const result = await admit(
+      request(through),
+      options({ publicUrls: urls({ base: 'https://pki.example', revocation: 'http://crl.example' }) }),
+    );
+    expect(result).toMatchObject({
+      baseUrl: 'https://pki.example',
+      revocationBaseUrl: 'http://crl.example',
+    });
+  });
+
+  it('keeps the request’s address while nothing is published', async () => {
+    const result = await admit(request(through), options({ publicUrls: urls(undefined) }));
+    expect(result).toMatchObject({ baseUrl: 'https://function-url.example' });
+    expect(result).not.toHaveProperty('revocationBaseUrl');
+  });
+
+  it('decodes the viewer certificate once the secret has passed and the header is trusted', async () => {
+    const result = await admit(
+      request({ ...through, 'cloudfront-viewer-cert-pem': encodeURIComponent(VIEWER) }),
+      options(),
+    );
+    expect(result).toMatchObject({ viewerCertificatePem: VIEWER });
+  });
+
+  it('ignores the header when the front door was not configured to send it', async () => {
+    const result = await admit(
+      request({ ...through, 'cloudfront-viewer-cert-pem': encodeURIComponent(VIEWER) }),
+      options({ trustViewerCertificateHeader: false }),
+    );
+    expect(result).not.toHaveProperty('viewerCertificatePem');
+  });
+
+  it('does not change the request it was given', async () => {
+    const original = request({ ...through, 'cloudfront-viewer-cert-pem': encodeURIComponent(VIEWER) });
+    await admit(original, options({ publicUrls: urls({ base: 'https://pki.example' }) }));
+    expect(original.baseUrl).toBe('https://function-url.example');
+    expect(original.viewerCertificatePem).toBeUndefined();
   });
 });

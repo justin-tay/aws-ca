@@ -2,7 +2,7 @@ import { CognitoIdentityProviderClient } from '@aws-sdk/client-cognito-identity-
 import { KMSClient } from '@aws-sdk/client-kms';
 import { S3Client } from '@aws-sdk/client-s3';
 import { SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
-import { GetParameterCommand, SSMClient } from '@aws-sdk/client-ssm';
+import { SSMClient } from '@aws-sdk/client-ssm';
 import type {
   APIGatewayProxyEvent,
   APIGatewayProxyEventV2,
@@ -13,8 +13,8 @@ import { CognitoAuthenticator } from '../auth';
 import type { ResolvedConfig } from '../config';
 import { CrlService, S3CrlStore } from '../crl';
 import { EstServer } from '../est';
-import { originIsVerified, text, type HttpRequest, type HttpResponse } from '../http';
-import { SsmPublicUrls } from '../frontdoor';
+import type { HttpRequest, HttpResponse } from '../http';
+import { admit, noOriginSecret, SsmOriginSecret, SsmPublicUrls, type OriginSecretSource } from '../frontdoor';
 import { KeyStoreRegistry } from '../keystore';
 import { OcspServer } from '../ocsp';
 import { CertificateIssuer } from '../issuance';
@@ -106,8 +106,10 @@ interface Runtime {
   issuingLabels: string[];
   /** Where this deployment's front door is, once published; undefined for a bare Function URL. */
   publicUrls?: SsmPublicUrls;
-  /** Resolved once; `undefined` means this front door adds no origin secret. */
-  originSecret: () => Promise<string | undefined>;
+  /** Reports no secret when this front door adds none. */
+  originSecret: OriginSecretSource;
+  /** The front door passes the viewer's certificate in a header (CloudFront with mTLS). */
+  trustViewerCertificateHeader: boolean;
   logger: Logger;
   clientDetails: boolean;
 }
@@ -174,7 +176,6 @@ function createRuntime(): Runtime {
   });
 
   const parameter = process.env.ORIGIN_VERIFY_PARAMETER;
-  let secret: Promise<string | undefined> | undefined;
   return {
     server,
     revocation,
@@ -188,25 +189,9 @@ function createRuntime(): Runtime {
       ? { publicUrls: new SsmPublicUrls(ssm, process.env.PUBLIC_URLS_PARAMETER) }
       : {}),
     issuingLabels: config.subordinateCas.map((ca) => ca.label),
-    originSecret: () => {
-      if (parameter === undefined) {
-        return Promise.resolve(undefined);
-      }
-      secret ??= ssm
-        .send(new GetParameterCommand({ Name: parameter, WithDecryption: true }))
-        .then((result) => {
-          // Fail closed: a missing secret must never read as "no secret is required".
-          if (result.Parameter?.Value === undefined) {
-            throw new Error('The origin verification parameter has no value.');
-          }
-          return result.Parameter.Value;
-        });
-      // A failed read is not remembered, so the next request tries again.
-      secret.catch(() => {
-        secret = undefined;
-      });
-      return secret;
-    },
+    originSecret: parameter === undefined ? noOriginSecret : new SsmOriginSecret(ssm, parameter),
+    // The header is the front door's word, which is only worth anything once the origin secret has passed.
+    trustViewerCertificateHeader: process.env.MTLS_VIEWER_CERT === '1',
   };
 }
 
@@ -275,29 +260,16 @@ async function serve(
   });
 }
 
-async function handle(services: Runtime, request: HttpRequest): Promise<APIGatewayProxyStructuredResultV2> {
-  // First, before anything in the request is believed: see `originIsVerified`.
-  if (!originIsVerified(request.headers, await services.originSecret())) {
-    return toResult(text(403, 'Forbidden.'));
+async function handle(services: Runtime, received: HttpRequest): Promise<APIGatewayProxyStructuredResultV2> {
+  const admitted = await admit(received, {
+    originSecret: services.originSecret,
+    ...(services.publicUrls ? { publicUrls: services.publicUrls } : {}),
+    trustViewerCertificateHeader: services.trustViewerCertificateHeader,
+  });
+  if ('status' in admitted) {
+    return toResult(admitted);
   }
-  // Behind CloudFront the Lambda sees its own Function URL; the addresses clients use were published.
-  const urls = await services.publicUrls?.get();
-  if (urls) {
-    request.baseUrl = urls.base;
-    if (urls.revocation) {
-      request.revocationBaseUrl = urls.revocation;
-    }
-  }
-  // The viewer certificate is believed only because the origin secret has just been verified, and
-  // only where CloudFront was configured to ask for one.
-  const viewerCertificate = request.headers['cloudfront-viewer-cert-pem'];
-  if (
-    process.env.MTLS_VIEWER_CERT === '1' &&
-    process.env.ORIGIN_VERIFY_PARAMETER !== undefined &&
-    viewerCertificate
-  ) {
-    request.viewerCertificatePem = decodeURIComponent(viewerCertificate);
-  }
+  const request = admitted;
   const routed =
     (await services.revocation.handle(request)) ??
     (await services.ocsp.handle(request)) ??

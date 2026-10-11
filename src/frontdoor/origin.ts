@@ -70,6 +70,50 @@ export function originSecretVersionOf(configJson: string | undefined): number {
   }
 }
 
+/**
+ * Where a request's origin secret comes from. `undefined` means this front door adds none, so every
+ * request passes the origin check: a source that has a secret must never report `undefined`.
+ */
+export interface OriginSecretSource {
+  get(): Promise<string | undefined>;
+}
+
+/** For a front door that adds no origin secret (a bare Function URL, API Gateway). */
+export const noOriginSecret: OriginSecretSource = { get: () => Promise.resolve(undefined) };
+
+/**
+ * Reads the origin secret once per process. It fails closed: a missing or empty value is an error,
+ * never "no secret is required", and a failed read is not remembered, so the next request tries
+ * again.
+ */
+export class SsmOriginSecret implements OriginSecretSource {
+  private secret: Promise<string> | undefined;
+
+  constructor(
+    private readonly ssm: Pick<SSMClient, 'send'>,
+    private readonly name: string,
+  ) {}
+
+  get(): Promise<string> {
+    if (this.secret === undefined) {
+      const loading = this.ssm
+        .send(new GetParameterCommand({ Name: this.name, WithDecryption: true }))
+        .then((result) => {
+          const value = result.Parameter?.Value;
+          if (value === undefined || value === '') {
+            throw new Error('The origin verification parameter has no value.');
+          }
+          return value;
+        });
+      this.secret = loading;
+      loading.catch(() => {
+        this.secret = undefined;
+      });
+    }
+    return this.secret;
+  }
+}
+
 /** What the runtime needs to write correct URLs into certificates. */
 export interface PublicUrls {
   /** Where clients reach EST, SCEP and revocation, with no trailing slash. */
