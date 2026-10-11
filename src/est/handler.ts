@@ -78,6 +78,7 @@ export class EstServer {
       config: deps.config,
       repository: deps.repository,
       keyStores: deps.keyStores,
+      logger: this.logger,
       now: this.now,
     });
   }
@@ -190,22 +191,14 @@ export class EstServer {
       }
 
       const issuer = new X509Certificate(ca.certificatePem);
-      const { certificate, serialNumber: serial } = await this.issuer.issue({
+      const { certificate } = await this.issuer.issue({
         ca,
         publicKey: csr.publicKey,
         decision,
         owner: user.username,
         ...(request.baseUrl === undefined ? {} : { baseUrl: request.baseUrl }),
         ...(request.revocationBaseUrl === undefined ? {} : { revocationBaseUrl: request.revocationBaseUrl }),
-      });
-      this.logger.event('issue_certificate', 'success', 'Certificate issued.', {
-        'aws_ca.protocol': 'est',
-        'aws_ca.ca': ca.label,
-        'aws_ca.profile': decision.profile,
-        'aws_ca.renewal': renewal,
-        'user.name': user.username,
-        'x509.serial_number': serial,
-        'x509.subject.distinguished_name': decision.subject,
+        audit: { protocol: 'est', renewal },
       });
       // The leaf and its issuing CA: what a client needs to bind the certificate (design spike 2).
       return pkcs7([certificate, issuer]);

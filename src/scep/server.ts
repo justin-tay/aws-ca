@@ -284,20 +284,13 @@ export class ScepServer {
       }
     }
 
-    const { certificate, serialNumber } = await this.deps.issuer.issue({
+    const { certificate } = await this.deps.issuer.issue({
       ca,
       publicKey: csr.publicKey,
       decision,
       owner: `scep:${decision.commonName}`,
       ...(baseUrl === undefined ? {} : { baseUrl }),
-    });
-    this.logger.event('issue_certificate', 'success', 'Certificate issued.', {
-      'aws_ca.protocol': 'scep',
-      'aws_ca.ca': ca.label,
-      'aws_ca.profile': 'client',
-      'aws_ca.renewal': signer.subject !== signer.issuer,
-      'x509.serial_number': serialNumber,
-      'x509.subject.distinguished_name': decision.subject,
+      audit: { protocol: 'scep', renewal: signer.subject !== signer.issuer },
     });
     return certificate;
   }

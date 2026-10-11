@@ -155,7 +155,7 @@ function createRuntime(env: ApiEnvironment): Runtime {
     config,
     repository,
     operational,
-    issuer: new CertificateIssuer({ config, repository, keyStores }),
+    issuer: new CertificateIssuer({ config, repository, keyStores, logger }),
     ...(mode === 'dynamic' ? {} : { challenge: new SsmChallenge(ssm, scepChallengeName(config.namePrefix)) }),
     ...(mode === 'static' ? {} : { dynamicChallenges }),
     logger,

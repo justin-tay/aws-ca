@@ -2,6 +2,7 @@ import { X509Certificate, type PublicKey } from '@peculiar/x509';
 import { canonicalSerial, issueCertificate } from '../ca';
 import type { ResolvedConfig } from '../config';
 import type { KeyStoreProvider } from '../keystore';
+import { silentLogger, type Logger } from '../log';
 import type { IssuanceDecision } from '../policy';
 import type { CaRecord, CaRepository } from '../repo';
 
@@ -13,6 +14,7 @@ export interface CertificateIssuerDependencies {
   config: Pick<ResolvedConfig, 'ocsp'>;
   repository: CaRepository;
   keyStores: KeyStoreProvider;
+  logger?: Logger;
   now?: () => Date;
 }
 
@@ -26,17 +28,25 @@ export interface IssueRequest {
   baseUrl?: string;
   /** Where the CRL and OCSP are, if not at `baseUrl`. */
   revocationBaseUrl?: string;
+  /** What only the protocol knows, for the record that every issued certificate leaves. */
+  audit: {
+    protocol: 'est' | 'scep';
+    /** Whether an existing certificate was presented, or asked for, as the reason. */
+    renewal: boolean;
+  };
 }
-
 /**
- * Signs a certificate for an already authorised request and records it. Every enrollment protocol
- * ends here, so what a certificate looks like and where it is recorded is the same for all.
+ * Signs a certificate for an already authorised request, records it, and says so in the log. Every
+ * enrollment protocol ends here, so what a certificate looks like, where it is recorded and what is
+ * logged about it is the same for all: none leaves the CA unrecorded or unaudited.
  */
 export class CertificateIssuer {
   private readonly now: () => Date;
+  private readonly logger: Logger;
 
   constructor(private readonly deps: CertificateIssuerDependencies) {
     this.now = deps.now ?? (() => new Date());
+    this.logger = deps.logger ?? silentLogger;
   }
 
   async issue(request: IssueRequest): Promise<{ certificate: X509Certificate; serialNumber: string }> {
@@ -77,6 +87,15 @@ export class CertificateIssuer {
       notAfter: certificate.notAfter,
       certificateDer: new Uint8Array(certificate.rawData),
       status: 'valid',
+    });
+    this.logger.event('issue_certificate', 'success', 'Certificate issued.', {
+      'aws_ca.protocol': request.audit.protocol,
+      'aws_ca.ca': ca.label,
+      'aws_ca.profile': decision.profile,
+      'aws_ca.renewal': request.audit.renewal,
+      'user.name': request.owner,
+      'x509.serial_number': serialNumber,
+      'x509.subject.distinguished_name': decision.subject,
     });
     return { certificate, serialNumber };
   }
