@@ -36,6 +36,14 @@ export interface CertificateRecord {
   revocationReason?: number;
 }
 
+/**
+ * Whether a certificate is current at `now`: not revoked, and not past its end. The answer to "may
+ * this certificate still be used to renew", as opposed to "does the CA still know of it", which an
+ * expired certificate also satisfies.
+ */
+export const isCurrent = (record: Pick<CertificateRecord, 'status' | 'notAfter'>, now: Date): boolean =>
+  record.status === 'valid' && record.notAfter > now;
+
 export interface OperationalCertificateRecord {
   caLabel: string;
   /** Increases with each rotation. */

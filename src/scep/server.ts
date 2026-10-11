@@ -11,7 +11,7 @@ import type { OperationalKeyService } from '../operational';
 import { PolicyError, decideScepIssuance } from '../policy';
 import { guard, resolveCa } from '../serving';
 import type { DynamicChallenges } from './dynamic';
-import type { CaRecord, CaRepository } from '../repo';
+import { isCurrent, type CaRecord, type CaRepository } from '../repo';
 import {
   FailInfo,
   MessageType,
@@ -276,8 +276,7 @@ export class ScepServer {
         : undefined;
       if (
         !record ||
-        record.status !== 'valid' ||
-        record.notAfter <= now ||
+        !isCurrent(record, now) ||
         !record.owner.startsWith('scep:') ||
         record.subject !== decision.subject
       ) {

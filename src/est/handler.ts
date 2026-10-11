@@ -10,7 +10,7 @@ import type { KeyStoreProvider } from '../keystore';
 import { errorFields, silentLogger, type Logger } from '../log';
 import { PolicyError, decideIssuance } from '../policy';
 import { guard, resolveCa } from '../serving';
-import type { CaRecord, CaRepository } from '../repo';
+import { isCurrent, type CaRecord, type CaRepository } from '../repo';
 import { certsOnlyBase64 } from './pkcs7';
 
 export interface EstDependencies {
@@ -121,7 +121,7 @@ export class EstServer {
     } catch {
       return undefined;
     }
-    if (!record || record.status !== 'valid' || record.notAfter <= this.now()) {
+    if (!record || !isCurrent(record, this.now())) {
       return undefined;
     }
     // An AuthError (throttled, unavailable) is not caught: it must not read as "refused".
@@ -182,7 +182,7 @@ export class EstServer {
           subject: decision.subject,
         });
         const renewable = existing.items.some(
-          (record) => record.caLabel === ca.label && record.status === 'valid' && record.notAfter > now,
+          (record) => record.caLabel === ca.label && isCurrent(record, now),
         );
         if (!renewable) {
           throw new PolicyError('There is no current certificate for this identity to renew.');
