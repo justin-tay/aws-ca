@@ -446,7 +446,7 @@ function resolveRestApi(c: Collector, raw: Rec, mtls: boolean, domain?: DomainIn
 }
 
 function resolveFrontDoor(c: Collector, value: unknown, cas: ResolvedCa[]): ResolvedFrontDoor {
-  const fallback: ResolvedFrontDoor = { type: 'cloudfront', mtls: false };
+  const fallback: ResolvedFrontDoor = { type: 'cloudfront', mtls: false, originSecretVersion: 1 };
   const raw = section(c, value, 'frontDoor', [
     'type',
     'mtls',
@@ -455,6 +455,7 @@ function resolveFrontDoor(c: Collector, value: unknown, cas: ResolvedCa[]): Reso
     'vpcEndpointId',
     'vpcId',
     'subnetIds',
+    'originSecretVersion',
   ]);
   const type = pick(c, raw.type, FRONT_DOORS, 'frontDoor.type', 'cloudfront');
   if (raw.type !== undefined && type !== raw.type) {
@@ -462,7 +463,7 @@ function resolveFrontDoor(c: Collector, value: unknown, cas: ResolvedCa[]): Reso
   }
   const allowedByType: Record<(typeof FRONT_DOORS)[number], readonly string[]> = {
     'function-url': ['type'],
-    cloudfront: ['type', 'mtls', 'domain'],
+    cloudfront: ['type', 'mtls', 'domain', 'originSecretVersion'],
     'http-api': ['type', 'mtls', 'domain'],
     'rest-api': ['type', 'mtls', 'domain', 'endpointType', 'vpcEndpointId', 'vpcId', 'subnetIds'],
   };
@@ -491,7 +492,15 @@ function resolveFrontDoor(c: Collector, value: unknown, cas: ResolvedCa[]): Reso
         'CloudFront trust stores support ECDSA P-256 and P-384 only, and at least one CA uses P-521.',
       );
     }
-    return domain ? { type, mtls, domain } : { type, mtls };
+    const originSecretVersion = integer(
+      c,
+      raw.originSecretVersion,
+      'frontDoor.originSecretVersion',
+      1,
+      1_000_000,
+      1,
+    );
+    return domain ? { type, mtls, originSecretVersion, domain } : { type, mtls, originSecretVersion };
   }
   if (type === 'http-api') {
     if (mtls && !domain) {

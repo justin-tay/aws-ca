@@ -66,7 +66,7 @@ describe('defaults', () => {
   });
 
   it('defaults to CloudFront without mTLS, Cognito Lite and the documented groups', () => {
-    expect(config.frontDoor).toEqual({ type: 'cloudfront', mtls: false });
+    expect(config.frontDoor).toEqual({ type: 'cloudfront', mtls: false, originSecretVersion: 1 });
     expect(config.auth.cognitoTier).toBe('lite');
     expect(config.groups).toEqual({
       client: 'est-client',
@@ -334,6 +334,26 @@ describe('SCEP', () => {
   it('keeps the SCEP group apart from the others', () => {
     const input = withValid({ groups: { scep: 'est-admin' } });
     expect(issuesOf(input)).toEqual([expect.objectContaining({ path: 'groups.scep' })]);
+  });
+});
+
+describe('the CloudFront origin secret version', () => {
+  it('defaults to 1 and can be raised', () => {
+    expect(resolve(withValid({ frontDoor: { type: 'cloudfront' } })).frontDoor).toMatchObject({
+      originSecretVersion: 1,
+    });
+    expect(
+      resolve(withValid({ frontDoor: { type: 'cloudfront', originSecretVersion: 3 } })).frontDoor,
+    ).toMatchObject({ originSecretVersion: 3 });
+  });
+
+  it('must be a whole number of at least 1, and is only for CloudFront', () => {
+    expect(
+      issuesOf(withValid({ frontDoor: { type: 'cloudfront', originSecretVersion: 0 } })).map((i) => i.path),
+    ).toEqual(['frontDoor.originSecretVersion']);
+    expect(
+      issuesOf(withValid({ frontDoor: { type: 'function-url', originSecretVersion: 2 } })).map((i) => i.path),
+    ).toEqual(['frontDoor.originSecretVersion']);
   });
 });
 

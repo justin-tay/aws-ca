@@ -4,8 +4,10 @@ import {
   buildTrustBundle,
   ensureOriginSecret,
   mayHaveTrustBundles,
+  originSecretVersionOf,
   originVerifyName,
   publicUrlsName,
+  rotateOriginSecret,
   SsmPublicUrls,
 } from '../src/frontdoor';
 
@@ -28,10 +30,36 @@ describe('trust bundles', () => {
 describe('which front doors can have trust bundles', () => {
   it('is only CloudFront, and a front door with mTLS', () => {
     expect(mayHaveTrustBundles({ type: 'function-url' })).toBe(false);
-    expect(mayHaveTrustBundles({ type: 'cloudfront', mtls: false })).toBe(true);
+    expect(mayHaveTrustBundles({ type: 'cloudfront', mtls: false, originSecretVersion: 1 })).toBe(true);
     expect(mayHaveTrustBundles({ type: 'http-api', mtls: false })).toBe(false);
     expect(mayHaveTrustBundles({ type: 'http-api', mtls: true })).toBe(true);
     expect(mayHaveTrustBundles({ type: 'rest-api', endpointType: 'regional', mtls: true })).toBe(true);
+  });
+});
+
+const config = (version?: number): string =>
+  JSON.stringify({
+    frontDoor: { type: 'cloudfront', ...(version === undefined ? {} : { originSecretVersion: version }) },
+  });
+
+describe('rotating the origin secret', () => {
+  const ssm = mockClient(SSMClient);
+  beforeEach(() => ssm.reset());
+
+  it('overwrites the parameter with a new value and returns it', async () => {
+    ssm.on(PutParameterCommand).resolves({});
+    const value = await rotateOriginSecret(new SSMClient({}), '/p/internal/origin-verify');
+    const put = ssm.commandCalls(PutParameterCommand)[0].args[0].input;
+    expect(put).toMatchObject({ Type: 'SecureString', Overwrite: true, Value: value });
+    expect(value.length).toBeGreaterThanOrEqual(32);
+  });
+
+  it('reads the version from a serialized configuration, 1 when there is none', () => {
+    expect(originSecretVersionOf(config(3))).toBe(3);
+    expect(originSecretVersionOf(config())).toBe(1);
+    expect(originSecretVersionOf(undefined)).toBe(1);
+    expect(originSecretVersionOf('not json')).toBe(1);
+    expect(originSecretVersionOf(JSON.stringify({ frontDoor: { type: 'function-url' } }))).toBe(1);
   });
 });
 

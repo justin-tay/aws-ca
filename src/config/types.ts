@@ -59,7 +59,13 @@ export interface DomainInput {
 
 export type FrontDoorInput =
   | { type: 'function-url' }
-  | { type: 'cloudfront'; mtls?: boolean; domain?: DomainInput }
+  | {
+      type: 'cloudfront';
+      mtls?: boolean;
+      domain?: DomainInput;
+      /** Raise it (and deploy) to rotate the secret between CloudFront and the origin. Default 1. */
+      originSecretVersion?: number;
+    }
   | { type: 'http-api'; mtls?: boolean; domain?: DomainInput }
   | {
       type: 'rest-api';
@@ -130,7 +136,7 @@ export interface ResolvedOperationalKey {
 
 export type ResolvedFrontDoor =
   | { type: 'function-url' }
-  | { type: 'cloudfront'; mtls: boolean; domain?: DomainInput }
+  | { type: 'cloudfront'; mtls: boolean; originSecretVersion: number; domain?: DomainInput }
   | { type: 'http-api'; mtls: boolean; domain?: DomainInput }
   | {
       type: 'rest-api';

@@ -1,5 +1,7 @@
 export {
   ensureOriginSecret,
+  originSecretVersionOf,
+  rotateOriginSecret,
   originVerifyName,
   publicUrlsName,
   SsmPublicUrls,

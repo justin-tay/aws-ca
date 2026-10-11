@@ -35,7 +35,7 @@ describe('the CRL of an offline root', () => {
       store: new InMemoryCrlStore(),
     });
     // Signing it is what would fail every daily run, and every update, were it attempted.
-    await expect(crl.refresh('root')).rejects.toThrow();
+    await expect(crl.refresh('root')).rejects.toBeInstanceOf(Error);
     const labels = ['root', 'issuing'];
     expect(maintainedCrlLabels(config, labels)).toEqual(['issuing']);
     const summary = await crl.refreshAll(maintainedCrlLabels(config, ['root']));

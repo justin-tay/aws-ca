@@ -170,7 +170,11 @@ Configurable level, default `cloudfront`:
   `Authorization` header, which breaks Basic auth. So the origin is a Function
   URL with auth `NONE`, CloudFront adds a secret `x-origin-verify` header, and
   the Lambda rejects any request without it. The secret lives in SSM (separate
-  parameter, rotated by redeploy). Without that check the Function URL is
+  parameter). It is rotated by raising `frontDoor.originSecretVersion` and
+  redeploying: that changes the bootstrap's properties, so CloudFormation runs it,
+  and it replaces the secret only when the version differs from the previous
+  deployment's (deleting the parameter by hand does nothing, because an
+  unchanged redeploy never runs the bootstrap). Without that check the Function URL is
   reachable directly and the mTLS can be bypassed, and the
   `CloudFront-Viewer-Cert-*` headers can be spoofed. The Lambda must trust them
   only after the secret check.

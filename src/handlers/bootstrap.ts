@@ -17,6 +17,8 @@ import { OperationalKeyService } from '../operational';
 import {
   buildTrustBundle,
   ensureOriginSecret,
+  originSecretVersionOf,
+  rotateOriginSecret,
   mayHaveTrustBundles,
   originVerifyName,
   removeTrustBundles,
@@ -280,7 +282,19 @@ export const handler = async (
   // trust store reads (CloudFront and API Gateway both take a PEM bundle from S3).
   const frontDoor: Record<string, string> = {};
   if (config.frontDoor.type === 'cloudfront') {
-    frontDoor.OriginVerifySecret = await ensureOriginSecret(ssm, originVerifyName(config.namePrefix));
+    const name = originVerifyName(config.namePrefix);
+    // Raising `frontDoor.originSecretVersion` changes the configuration, which is what makes
+    // CloudFormation call this function at all; the secret is replaced only for that change.
+    const rotate =
+      event.RequestType === 'Update' &&
+      originSecretVersionOf(properties.Config) !==
+        originSecretVersionOf(
+          (event as { OldResourceProperties?: { Config?: string } }).OldResourceProperties?.Config,
+        );
+    frontDoor.OriginVerifySecret = rotate
+      ? await rotateOriginSecret(ssm, name)
+      : await ensureOriginSecret(ssm, name);
+    console.info(JSON.stringify({ message: rotate ? 'origin secret rotated' : 'origin secret ensured' }));
   }
   {
     if (config.frontDoor.type !== 'function-url' && config.frontDoor.mtls && bucket !== undefined) {
