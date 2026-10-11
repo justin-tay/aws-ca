@@ -1,5 +1,5 @@
 import { X509Certificate } from '@peculiar/x509';
-import { buildCrl, type RevokedEntry, type Signer } from '../ca';
+import { buildCrl, type RevokedEntry } from '../ca';
 import type { ResolvedConfig } from '../config';
 import type { KeyStoreProvider } from '../keystore';
 import { errorFields, silentLogger, type Logger } from '../log';
@@ -47,23 +47,12 @@ export interface CrlRefreshResult {
  * rebuilds, so a slow writer can leave the stored object stale only until the next write.
  */
 export class CrlService {
-  private readonly signers = new Map<string, Promise<Signer>>();
   private readonly logger: Logger;
   private readonly now: () => Date;
 
   constructor(private readonly deps: CrlServiceDependencies) {
     this.logger = deps.logger ?? silentLogger;
     this.now = deps.now ?? (() => new Date());
-  }
-
-  private signerFor(label: string, keyRef: Parameters<KeyStoreProvider['forRef']>[0]): Promise<Signer> {
-    let signer = this.signers.get(label);
-    if (!signer) {
-      signer = this.deps.keyStores.forRef(keyRef).getSigner(keyRef);
-      this.signers.set(label, signer);
-      signer.catch(() => this.signers.delete(label));
-    }
-    return signer;
   }
 
   /**
@@ -77,7 +66,7 @@ export class CrlService {
     }
     const issuer = {
       certificate: new X509Certificate(ca.certificatePem),
-      signer: await this.signerFor(caLabel, ca.keyRef),
+      signer: await this.deps.keyStores.forRef(ca.keyRef).getSigner(ca.keyRef),
     };
 
     let result: CrlRefreshResult | undefined;

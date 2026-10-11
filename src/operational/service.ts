@@ -69,7 +69,6 @@ export class OperationalKeyService {
   private readonly logger: Logger;
   private readonly now: () => Date;
   private readonly newGeneration: () => string;
-  private readonly signers = new Map<string, Promise<Signer>>();
 
   constructor(private readonly deps: OperationalDependencies) {
     this.logger = deps.logger ?? silentLogger;
@@ -285,16 +284,9 @@ export class OperationalKeyService {
     if (!record) {
       return undefined;
     }
-    const cacheKey = `${label}/${record.sequence}`;
-    let signer = this.signers.get(cacheKey);
-    if (!signer) {
-      signer = this.deps.keyStores.forRef(record.keyRef).getSigner(record.keyRef);
-      this.signers.set(cacheKey, signer);
-      signer.catch(() => this.signers.delete(cacheKey));
-    }
     return {
       certificate: new X509Certificate(record.certificatePem),
-      signer: await signer,
+      signer: await this.deps.keyStores.forRef(record.keyRef).getSigner(record.keyRef),
       sequence: record.sequence,
     };
   }

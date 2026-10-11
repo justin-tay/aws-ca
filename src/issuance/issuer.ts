@@ -1,5 +1,5 @@
 import { X509Certificate, type PublicKey } from '@peculiar/x509';
-import { canonicalSerial, issueCertificate, type Signer } from '../ca';
+import { canonicalSerial, issueCertificate } from '../ca';
 import type { ResolvedConfig } from '../config';
 import type { KeyStoreProvider } from '../keystore';
 import type { IssuanceDecision } from '../policy';
@@ -33,22 +33,10 @@ export interface IssueRequest {
  * ends here, so what a certificate looks like and where it is recorded is the same for all.
  */
 export class CertificateIssuer {
-  private readonly signers = new Map<string, Promise<Signer>>();
   private readonly now: () => Date;
 
   constructor(private readonly deps: CertificateIssuerDependencies) {
     this.now = deps.now ?? (() => new Date());
-  }
-
-  private signerFor(ca: CaRecord): Promise<Signer> {
-    let signer = this.signers.get(ca.label);
-    if (!signer) {
-      signer = this.deps.keyStores.forRef(ca.keyRef).getSigner(ca.keyRef);
-      this.signers.set(ca.label, signer);
-      // A failure must not be cached, or the CA stays unusable until the process is replaced.
-      signer.catch(() => this.signers.delete(ca.label));
-    }
-    return signer;
   }
 
   async issue(request: IssueRequest): Promise<{ certificate: X509Certificate; serialNumber: string }> {
@@ -63,7 +51,10 @@ export class CertificateIssuer {
       profile: decision.profile,
       subject: decision.subject,
       publicKey: request.publicKey,
-      issuer: { certificate: issuer, signer: await this.signerFor(ca) },
+      issuer: {
+        certificate: issuer,
+        signer: await this.deps.keyStores.forRef(ca.keyRef).getSigner(ca.keyRef),
+      },
       notBefore: new Date(now.getTime() - CLOCK_SKEW_MS),
       notAfter,
       subjectAltNames: decision.subjectAltNames,

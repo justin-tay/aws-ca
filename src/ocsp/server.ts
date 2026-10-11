@@ -65,7 +65,6 @@ function decodeGet(encoded: string): Uint8Array | undefined {
 export class OcspServer {
   private readonly logger: Logger;
   private readonly now: () => Date;
-  private readonly caSigners = new Map<string, Promise<Signer>>();
 
   constructor(private readonly deps: OcspDependencies) {
     this.logger = deps.logger ?? silentLogger;
@@ -171,7 +170,7 @@ export class OcspServer {
     }
     const signing: Signing = delegated ?? {
       certificate: issuer,
-      signer: await this.caSigner(ca),
+      signer: await this.deps.keyStores.forRef(ca.keyRef).getSigner(ca.keyRef),
       includeCertificate: false,
     };
 
@@ -215,15 +214,5 @@ export class OcspServer {
         ? { 'cache-control': `public, max-age=${maxAge}, no-transform, must-revalidate` }
         : { 'cache-control': 'no-store' };
     return ocspResponse(body, headers);
-  }
-
-  private caSigner(ca: CaRecord): Promise<Signer> {
-    let signer = this.caSigners.get(ca.label);
-    if (!signer) {
-      signer = this.deps.keyStores.forRef(ca.keyRef).getSigner(ca.keyRef);
-      this.caSigners.set(ca.label, signer);
-      signer.catch(() => this.caSigners.delete(ca.label));
-    }
-    return signer;
   }
 }
