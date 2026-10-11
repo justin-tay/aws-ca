@@ -140,9 +140,10 @@ export class ScepChallengeServer {
     this.logger.info('scep challenge issued', { ca: caLabel, username, via: 'mscep_admin' });
     return {
       status: 200,
-      // UTF-16LE with a byte order mark, as NDES serves it: PSCertificateEnrollment's Get-NDESOTP
-      // decodes the body as UTF-16 and nothing else.
-      headers: { 'content-type': 'text/html; charset=utf-16', ...NO_STORE },
+      // As Windows Server 2025 serves it (checked: Content-Type text/html without a charset, a UTF-16LE
+      // body with a byte order mark, 2510 bytes): PSCertificateEnrollment's Get-NDESOTP decodes the
+      // body as UTF-16 and nothing else.
+      headers: { 'content-type': 'text/html', ...NO_STORE },
       body: Buffer.from(
         `\uFEFF${ndesPage(
           challenge,

@@ -441,7 +441,7 @@ describe('SCEP enrollment with dynamic challenges', () => {
 
     const page = await ask('/scep/issuing/certsrv/mscep_admin/', { headers: auth('mdm') });
     expect(page?.status).toBe(200);
-    expect(page?.headers['content-type']).toContain('text/html');
+    expect(page?.headers['content-type']).toBe('text/html');
     expect(page?.isBase64Encoded).toBe(true);
     const html = Buffer.from(page?.body ?? '', 'base64').toString('utf16le');
     expect(html.startsWith('\uFEFF')).toBe(true);
