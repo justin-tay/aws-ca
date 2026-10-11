@@ -13,7 +13,7 @@ a one-time password; they obtain one per device from an NDES admin page and scra
 
 ## Decision
 
-`scep.challenge` is `static` (default, the shared SSM secret), `dynamic` or `both`.
+`scep.challenge` is `both` (default), `static` (the shared SSM secret) or `dynamic`.
 
 - **A challenge** is `lengthBytes` random bytes (8 by default, shown as uppercase hex), single use,
   valid for `validityMinutes` (60), with at most `maxOutstanding` (100) unexpired per CA. The cap

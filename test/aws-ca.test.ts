@@ -281,11 +281,11 @@ describe('authentication and the endpoint', () => {
     });
   });
 
-  it('has the three groups, named by the configuration', () => {
+  it('has the groups, named by the configuration, with the SCEP group as challenges are dynamic too', () => {
     const names = Object.values(template.findResources('AWS::Cognito::UserPoolGroup')).map(
       (group) => group.Properties.GroupName as string,
     );
-    expect(names.toSorted()).toEqual(['est-admin', 'est-client', 'est-server']);
+    expect(names.toSorted()).toEqual(['est-admin', 'est-client', 'est-server', 'scep-admin']);
   });
 
   it('has an app client that allows password auth and has no secret', () => {
@@ -428,7 +428,9 @@ describe('SCEP', () => {
   });
 
   it('has no SCEP group when challenges are static', () => {
-    const groups = Object.values(Template.fromStack(stackFor()).findResources('AWS::Cognito::UserPoolGroup'));
+    const groups = Object.values(
+      Template.fromStack(stackFor({ scep: { challenge: 'static' } })).findResources('AWS::Cognito::UserPoolGroup'),
+    );
     expect(groups.map((group) => group.Properties.GroupName)).not.toContain('scep-admin');
   });
 

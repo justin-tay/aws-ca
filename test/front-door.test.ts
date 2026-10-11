@@ -87,6 +87,16 @@ describe('the cloudfront front door without mTLS', () => {
     expect(caches.some((policy) => policy.includes('Authorization'))).toBe(true);
   });
 
+  it('restores WWW-Authenticate on enrollment, which the Function URL renames', () => {
+    const { default: main, byPath } = behaviorsOf(Object.values(distributions(template))[0]);
+    expect(main.FunctionAssociations).toEqual([
+      expect.objectContaining({ EventType: 'viewer-response' }),
+    ]);
+    expect(byPath['/crl/*'].FunctionAssociations).toBeUndefined();
+    const code = JSON.stringify(template.findResources('AWS::CloudFront::Function'));
+    expect(code).toContain('x-amzn-remapped-www-authenticate');
+  });
+
   it('never whitelists Host, which a Function URL answers with 403', () => {
     const policies = JSON.stringify(template.findResources('AWS::CloudFront::OriginRequestPolicy'));
     expect(policies).not.toContain('"Host"');

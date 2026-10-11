@@ -371,7 +371,7 @@ export function resolveConfig(input: AwsCaConfigInput = {}): ResolvedConfig {
 
   const scepRec = section(c, top.scep, 'scep', ['enabled', 'challenge', 'dynamicChallenge']);
   const scepEnabled = flag(c, scepRec.enabled, 'scep.enabled', true);
-  const scepChallenge = pick(c, scepRec.challenge, SCEP_CHALLENGES, 'scep.challenge', 'static');
+  const scepChallenge = pick(c, scepRec.challenge, SCEP_CHALLENGES, 'scep.challenge', 'both');
   const dynamicRec = section(c, scepRec.dynamicChallenge, 'scep.dynamicChallenge', [
     'validityMinutes',
     'maxOutstanding',

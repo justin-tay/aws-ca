@@ -91,7 +91,7 @@ export interface AwsCaConfigInput {
   operationalKey?: OperationalKeyInput;
   scep?: {
     enabled?: boolean;
-    /** Default `static`. */
+    /** Default `both`. */
     challenge?: ScepChallengeMode;
     /** Applies to `dynamic` and `both`. */
     dynamicChallenge?: { validityMinutes?: number; maxOutstanding?: number; lengthBytes?: number };

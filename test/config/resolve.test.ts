@@ -301,10 +301,10 @@ describe('SCEP', () => {
     expect(issuesOf(input)).toEqual([expect.objectContaining({ path: 'scep.enabled' })]);
   });
 
-  it('uses a static challenge, valid for an hour, unless told otherwise', () => {
+  it('accepts static and dynamic challenges, valid for an hour, unless told otherwise', () => {
     expect(resolve(withValid({})).scep).toEqual({
       enabled: true,
-      challenge: 'static',
+      challenge: 'both',
       dynamicChallenge: { validityMinutes: 60, maxOutstanding: 100, lengthBytes: 8 },
     });
   });

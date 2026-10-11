@@ -115,7 +115,7 @@ configuration fails `cdk synth` and lists every problem. `AWS_CA_CONFIG` selects
 | `subordinateCas`                | `label`, `profiles`, `subject`, `algorithm`, `keyStore`, `validityYears` of each issuing CA          | one `issuing` CA, both profiles |
 | `operationalKey`                | The RSA key that SCEP decrypts with: `backend`, `protection`, `modulusLength`, `validityDays`        | RSA 2048, 365 days              |
 | `scep.enabled`                  | Serve SCEP                                                                                           | `true`                          |
-| `scep.challenge`                | `static` (shared secret), `dynamic` (single use, requested per device) or `both`                     | `static`                        |
+| `scep.challenge`                | `static` (shared secret), `dynamic` (single use, requested per device) or `both`                     | `both`                          |
 | `scep.dynamicChallenge`         | `validityMinutes`, `maxOutstanding`, `lengthBytes`                                                   | 60, 100, 8                      |
 | `ocsp`                          | `enabled`, `signing` (`operational`, `kms` or `ca`), `maxAgeSeconds`, `nextUpdateHours`              | enabled, `operational`, 3600, 4 |
 | `crl.nextUpdateDays`            | Days until the CRL says it is updated (it is rebuilt on every revocation and daily)                  | `7`                             |

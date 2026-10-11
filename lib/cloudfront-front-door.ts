@@ -151,12 +151,31 @@ export class CloudFrontFrontDoor {
           }
         : {}),
     };
+    // A Function URL renames WWW-Authenticate to x-amzn-Remapped-www-authenticate, so a browser
+    // would see a bare 401 and never prompt for the Basic credentials (the NDES challenge page).
+    const restoreAuthenticate = new CloudFrontFunction(scope, 'RestoreWwwAuthenticate', {
+      comment: 'Puts the WWW-Authenticate header back, which the Function URL renames',
+      code: FunctionCode.fromInline(
+        [
+          'function handler(event) {',
+          '  var headers = event.response.headers;',
+          "  var remapped = headers['x-amzn-remapped-www-authenticate'];",
+          '  if (remapped) {',
+          "    headers['www-authenticate'] = remapped;",
+          "    delete headers['x-amzn-remapped-www-authenticate'];",
+          '  }',
+          '  return event.response;',
+          '}',
+        ].join('\n'),
+      ),
+    });
     const dynamicBehavior: BehaviorOptions = {
       origin,
       viewerProtocolPolicy: ViewerProtocolPolicy.HTTPS_ONLY,
       allowedMethods: AllowedMethods.ALLOW_ALL,
       cachePolicy: dynamicCache,
       originRequestPolicy: dynamicRequests,
+      functionAssociations: [{ function: restoreAuthenticate, eventType: FunctionEventType.VIEWER_RESPONSE }],
     };
 
     if (!frontDoor.mtls) {
