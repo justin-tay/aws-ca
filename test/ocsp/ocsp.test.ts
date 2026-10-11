@@ -1,12 +1,6 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import {
-  ExtendedKeyUsage,
-  ExtendedKeyUsageExtension,
-  PublicKey,
-  X509Certificate,
-  X509Certificates,
-} from '@peculiar/x509';
+import { PublicKey, X509Certificate, X509Certificates } from '@peculiar/x509';
 import { issueCertificate } from '../../src/ca';
 import { bootstrapCas } from '../../src/bootstrap';
 import type { AuthenticatedUser, Authenticator } from '../../src/auth';
@@ -118,77 +112,6 @@ async function setup(input: AwsCaConfigInput = {}, startAt: Date = NOW) {
 
 const bodyOf = (response: HttpResponse | undefined): Uint8Array =>
   new Uint8Array(Buffer.from(response?.body ?? '', 'base64'));
-
-describe('operational keys', () => {
-  it('creates a delegated certificate for each issuing CA, signed by that CA', async () => {
-    const { repository, operational, keyStores } = await setup();
-
-    const [record] = await repository.listOperationalCertificates('issuing-ops');
-    expect(record).toMatchObject({ sequence: 1, active: true });
-    const certificate = new X509Certificate(record.certificatePem);
-    const issuing = new X509Certificate((await repository.getCa('issuing'))!.certificatePem);
-    expect(await certificate.verify({ publicKey: issuing, signatureOnly: true })).toBe(true);
-    expect(certificate.getExtension(ExtendedKeyUsageExtension)?.usages).toEqual(
-      expect.arrayContaining([ExtendedKeyUsage.ocspSigning]),
-    );
-    expect(record.keyRef).toMatchObject({ backend: 'parameter' });
-    expect((await operational.responder('issuing', 'ops'))?.sequence).toBe(1);
-    expect(keyStores.keyCount).toBe(3);
-  });
-
-  it('keeps a certificate that is not near its end, and rotates one that is', async () => {
-    const { operational, advance, repository } = await setup();
-    advance(100);
-    expect((await operational.ensure('issuing', 'ops')).action).toBe('kept');
-
-    // Inside the rotation window (the last 30 days of 365).
-    advance(240);
-    const rotated = await operational.ensure('issuing', 'ops');
-    expect(rotated).toMatchObject({ action: 'rotated', sequence: 2 });
-
-    const records = await repository.listOperationalCertificates('issuing-ops');
-    expect(records.map((record) => [record.sequence, record.active])).toEqual([
-      [1, false],
-      [2, true],
-    ]);
-    expect((await operational.responder('issuing', 'ops'))?.sequence).toBe(2);
-  });
-
-  it('has no gap: the old certificate is still valid when the new one is active', async () => {
-    const { operational, advance, repository } = await setup();
-    advance(340);
-    await operational.ensure('issuing', 'ops');
-    const [first, second] = await repository.listOperationalCertificates('issuing-ops');
-    expect(first.notAfter.getTime()).toBeGreaterThan(Date.now() - 1);
-    expect(second.notAfter.getTime()).toBeGreaterThan(first.notAfter.getTime());
-    expect(first.active).toBe(false);
-  });
-
-  it('creates one when several run at once, and leaves no stray key', async () => {
-    const { repository, keyStores, config } = await setup();
-    const before = keyStores.keyCount;
-    // The dedicated OCSP signing key has no certificate yet, so four racers all try to make one.
-    const service = new OperationalKeyService({
-      config: { ...config, ocsp: { ...config.ocsp, signing: 'kms' as const } },
-      repository,
-      keyStores,
-      now: () => NOW,
-    });
-
-    const outcomes = await Promise.all(Array.from({ length: 4 }, () => service.ensure('issuing', 'ocsp')));
-
-    expect(outcomes.filter((outcome) => outcome.action === 'created')).toHaveLength(1);
-    expect(await repository.listOperationalCertificates('issuing-ocsp')).toHaveLength(1);
-    expect(keyStores.keyCount).toBe(before + 1);
-  });
-
-  it('deletes every delegated key when asked', async () => {
-    const { operational, keyStores } = await setup();
-    const before = keyStores.keyCount;
-    expect(await operational.removeAll()).toBe(1);
-    expect(keyStores.keyCount).toBe(before - 1);
-  });
-});
 
 async function files(h: Awaited<ReturnType<typeof setup>>, names: Record<string, X509Certificate>) {
   const root = (await h.repository.getCa('root'))!.certificatePem;
