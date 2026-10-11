@@ -7,7 +7,8 @@ import { authErrorResponse, authenticateRequest, isResponse, type Authenticator 
 import type { ResolvedConfig } from '../config';
 import { text, type HttpRequest, type HttpResponse } from '../http';
 import { errorFields, silentLogger, type Logger } from '../log';
-import { RepositoryError, type CaRepository } from '../repo';
+import { RepositoryError, type CaRecord, type CaRepository } from '../repo';
+import { resolveCa } from '../serving';
 import type { DynamicChallenges } from './dynamic';
 
 export interface ScepChallengeDependencies {
@@ -95,13 +96,11 @@ export class ScepChallengeServer {
       return text(405, `Use ${allowed}.`, { allow: allowed });
     }
     try {
-      const caLabel = route.caLabel ?? this.onlyClientCa();
-      const known =
-        caLabel !== undefined &&
-        config.subordinateCas.some((ca) => ca.label === caLabel && ca.profiles.includes('client'));
-      if (!known) {
+      const ca = await resolveCa(this.deps, route.caLabel, { profile: 'client' });
+      if (!ca) {
         return text(404, 'There is no such CA; name it in the path.');
       }
+      const caLabel = ca.label;
       const user = await authenticateRequest(request, this.deps.authenticator, this.logger);
       if (isResponse(user)) {
         return user;
@@ -115,7 +114,7 @@ export class ScepChallengeServer {
         return text(403, 'Not allowed to request SCEP challenges.');
       }
       return route.kind === 'page'
-        ? await this.page(caLabel, user.username)
+        ? await this.page(ca, user.username)
         : await this.json(request, caLabel, user.username);
     } catch (error) {
       const authFailure = authErrorResponse(error, this.logger);
@@ -140,17 +139,8 @@ export class ScepChallengeServer {
     }
   }
 
-  /** The bare NDES path names no CA, so it works only where one CA issues client certificates. */
-  private onlyClientCa(): string | undefined {
-    const candidates = this.deps.config.subordinateCas.filter((ca) => ca.profiles.includes('client'));
-    return candidates.length === 1 ? candidates[0].label : undefined;
-  }
-
-  private async page(caLabel: string, username: string): Promise<HttpResponse> {
-    const ca = await this.deps.repository.getCa(caLabel);
-    if (!ca) {
-      return text(404, 'There is no such CA.');
-    }
+  private async page(ca: CaRecord, username: string): Promise<HttpResponse> {
+    const caLabel = ca.label;
     const { challenge } = await this.deps.challenges.issue(caLabel, { createdBy: username });
     this.logger.event('issue_scep_challenge', 'success', 'A SCEP challenge was issued.', {
       'aws_ca.ca': caLabel,

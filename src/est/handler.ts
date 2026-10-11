@@ -15,6 +15,7 @@ import { text, type HttpRequest, type HttpResponse } from '../http';
 import type { KeyStoreProvider } from '../keystore';
 import { errorFields, silentLogger, type Logger } from '../log';
 import { PolicyError, decideIssuance } from '../policy';
+import { resolveCa } from '../serving';
 import type { CaRecord, CaRepository } from '../repo';
 import { certsOnlyBase64 } from './pkcs7';
 
@@ -93,8 +94,7 @@ export class EstServer {
       return text(404, 'Not found.');
     }
     try {
-      const caLabel = route.caLabel ?? this.deps.config.subordinateCas[0]?.label;
-      const ca = caLabel === undefined ? undefined : await this.deps.repository.getCa(caLabel);
+      const ca = await resolveCa(this.deps, route.caLabel);
       if (!ca) {
         return text(404, 'There is no such CA.');
       }

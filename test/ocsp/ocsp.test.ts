@@ -330,6 +330,18 @@ const check = (dir: string, name: string, response: HttpResponse | undefined, ex
     expect(Buffer.from(bodyOf(wrong)).toString('hex')).toBe('30030a0106');
     const garbage = await h.post(new Uint8Array([1, 2, 3]));
     expect(Buffer.from(bodyOf(garbage)).toString('hex')).toBe('30030a0101');
+    // A well-formed request for the issuing CA, sent to a CA that is not an issuing CA here.
+    const forIssuing = request(dir, 'alice', ['-no_nonce']);
+    for (const label of ['root', 'nobody']) {
+      // oxlint-disable-next-line no-await-in-loop
+      const elsewhere = await h.ocsp.handle({
+        method: 'POST',
+        path: `/ocsp/${label}`,
+        headers: { 'content-type': 'application/ocsp-request' },
+        body: forIssuing,
+      });
+      expect(Buffer.from(bodyOf(elsewhere)).toString('hex')).toBe('30030a0106');
+    }
     const noContentType = await h.ocsp.handle({
       method: 'POST',
       path: '/ocsp/issuing',

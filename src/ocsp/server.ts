@@ -8,6 +8,7 @@ import { errorFields, silentLogger, type Logger } from '../log';
 import type { KeyStoreProvider } from '../keystore';
 import type { OperationalKeyService } from '../operational';
 import type { CaRecord, CaRepository } from '../repo';
+import { resolveCa } from '../serving';
 import {
   OCSPResponseStatus,
   buildErrorResponse,
@@ -133,9 +134,7 @@ export class OcspServer {
     if (parsed.certificates.length === 0 || parsed.certificates.length > MAX_CERTIFICATES) {
       return this.error(OCSPResponseStatus.malformedRequest);
     }
-    const ca = this.deps.config.subordinateCas.some((candidate) => candidate.label === caLabel)
-      ? await this.deps.repository.getCa(caLabel)
-      : undefined;
+    const ca = await resolveCa(this.deps, caLabel);
     if (!ca) {
       return this.error(OCSPResponseStatus.unauthorized);
     }

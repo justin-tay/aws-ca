@@ -9,6 +9,7 @@ import type { CertificateIssuer } from '../issuance';
 import { errorFields, silentLogger, type Logger } from '../log';
 import type { OperationalKeyService } from '../operational';
 import { PolicyError, decideScepIssuance } from '../policy';
+import { resolveCa } from '../serving';
 import type { DynamicChallenges } from './dynamic';
 import type { CaRecord, CaRepository } from '../repo';
 import {
@@ -81,12 +82,7 @@ export class ScepServer {
       return text(404, 'SCEP is not enabled.');
     }
     try {
-      const caLabel = route.caLabel ?? this.deps.config.subordinateCas[0]?.label;
-      const ca =
-        caLabel !== undefined &&
-        this.deps.config.subordinateCas.some((candidate) => candidate.label === caLabel)
-          ? await this.deps.repository.getCa(caLabel)
-          : undefined;
+      const ca = await resolveCa(this.deps, route.caLabel);
       if (!ca) {
         return text(404, 'There is no such CA.');
       }

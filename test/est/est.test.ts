@@ -119,6 +119,8 @@ describe('EST', () => {
     expect((await call('GET', '/est/issuing/cacerts')).status).toBe(200);
     expect((await call('GET', '/.well-known/est/cacerts')).status).toBe(200);
     expect((await call('GET', '/.well-known/est/nobody/cacerts')).status).toBe(404);
+    // The root has a record but is not an issuing CA: it is not addressable.
+    expect((await call('GET', '/.well-known/est/root/cacerts')).status).toBe(404);
     expect((await call('GET', '/.well-known/est/issuing/serverkeygen')).status).toBe(404);
     expect((await call('GET', '/elsewhere')).status).toBe(404);
   });

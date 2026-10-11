@@ -488,6 +488,53 @@ describe('SCEP enrollment with dynamic challenges', () => {
     expect((await ask('/scep/nope/certsrv/mscep_admin/', { headers: auth('mdm') }))?.status).toBe(404);
   });
 
+  it('takes the first client CA for the bare path when several issue client certificates', async () => {
+    const harness = await setup(
+      {
+        subordinateCas: [
+          { label: 'issuing', profiles: ['client'] },
+          { label: 'second', profiles: ['client'] },
+          { label: 'servers', profiles: ['server'] },
+        ],
+      },
+      'dynamic',
+    );
+    const challengeServer = new ScepChallengeServer({
+      config: harness.config,
+      repository: harness.repository,
+      authenticator: {
+        lookup: () => Promise.resolve(undefined),
+        authenticate: () => Promise.resolve({ username: 'mdm', groups: ['scep-admin'] }),
+      },
+      challenges: harness.dynamicChallenges,
+    });
+    const ask = (path: string) =>
+      challengeServer.handle({
+        method: 'GET',
+        path,
+        headers: auth('mdm'),
+        body: new Uint8Array(),
+      });
+    const thumbprintOf = async (label: string): Promise<string> => {
+      const pem = (await harness.repository.getCa(label))!.certificatePem;
+      const hex = createHash('md5')
+        .update(new Uint8Array(new X509Certificate(pem).rawData))
+        .digest('hex')
+        .toUpperCase();
+      return (hex.match(/.{8}/g) ?? []).join(' ');
+    };
+    const page = async (path: string): Promise<string> => {
+      const response = await ask(path);
+      expect(response?.status).toBe(200);
+      return Buffer.from(response?.body ?? '', 'base64').toString('utf16le');
+    };
+
+    expect(await page('/certsrv/mscep_admin/')).toContain(await thumbprintOf('issuing'));
+    expect(await page('/scep/second/certsrv/mscep_admin/')).toContain(await thumbprintOf('second'));
+    // A CA that issues no client certificates has no challenges.
+    expect((await ask('/scep/servers/certsrv/mscep_admin/'))?.status).toBe(404);
+  });
+
   it('answers 404 where dynamic challenges are not enabled', async () => {
     const harness = await setup({}, 'static');
     const challengeServer = new ScepChallengeServer({
