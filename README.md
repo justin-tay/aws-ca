@@ -61,17 +61,36 @@ https://xyz.cloudfront.net/.well-known/est/issuing/simpleenroll
 `issuing` is the label of the CA, which can be left out to use the first one. The outputs of the
 deployment (`EstEndpoint`, `ScepEndpoint`, `RevocationBaseUrl`, ...) give the addresses.
 
-| Operation                       | Operation Path                         |
-| ------------------------------- | -------------------------------------- |
-| Distribution of CA Certificates | `/.well-known/est/<ca>/cacerts`        |
-| Enrollment of Clients           | `/.well-known/est/<ca>/simpleenroll`   |
-| Re-enrollment of Clients        | `/.well-known/est/<ca>/simplereenroll` |
-| SCEP                            | `/scep/<ca>/pkiclient.exe`             |
-| SCEP Challenge (NDES page)      | `/scep/<ca>/certsrv/mscep_admin/`      |
-| SCEP Challenge (JSON)           | `POST /ca/<ca>/scep/challenge`         |
-| Revoke Client                   | `POST /ca/<ca>/revoke`                 |
-| Certificate Revocation List     | `/crl/<ca>.crl`                        |
-| OCSP Responder                  | `/ocsp/<ca>`                           |
+### EST
+
+Authenticated with `Basic` authentication. Re-enrollment can instead present the certificate being
+renewed, if the front door is configured with mTLS.
+
+| Operation                       | Method | Operation Path                         |
+| ------------------------------- | ------ | -------------------------------------- |
+| Distribution of CA Certificates | GET    | `/.well-known/est/<ca>/cacerts`        |
+| Enrollment of Clients           | POST   | `/.well-known/est/<ca>/simpleenroll`   |
+| Re-enrollment of Clients        | POST   | `/.well-known/est/<ca>/simplereenroll` |
+
+The same paths are available under `/est/<ca>/...`.
+
+### SCEP
+
+Authenticated with the challenge, or by signing a renewal with the certificate being renewed.
+
+| Operation                  | Method   | Operation Path                    | Authentication         |
+| -------------------------- | -------- | --------------------------------- | ---------------------- |
+| SCEP                       | GET/POST | `/scep/<ca>/pkiclient.exe`        | challenge              |
+| SCEP Challenge (NDES page) | GET      | `/scep/<ca>/certsrv/mscep_admin/` | `Basic` (`scep-admin`) |
+| SCEP Challenge (JSON)      | POST     | `/ca/<ca>/scep/challenge`         | `Basic` (`scep-admin`) |
+
+### Revocation
+
+| Operation                   | Method   | Operation Path                      | Authentication                 |
+| --------------------------- | -------- | ----------------------------------- | ------------------------------ |
+| Revoke Client               | POST     | `/ca/<ca>/revoke`                   | `Basic` (owner or `est-admin`) |
+| Certificate Revocation List | GET      | `/crl/<ca>.crl`                     | none                           |
+| OCSP Responder              | GET/POST | `/ocsp/<ca>`, `/ocsp/<ca>/<base64>` | none                           |
 
 The default front door is CloudFront, which can serve the CRL and OCSP over HTTP. The other front
 doors (`function-url`, `http-api` and `rest-api`) only serve HTTPS, so the OCSP responder is a HTTPS
