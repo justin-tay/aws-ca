@@ -1,4 +1,4 @@
-import { authErrorResponse, authenticateRequest, isResponse, type Authenticator } from '../auth';
+import { authenticateRequest, isResponse, type Authenticator } from '../auth';
 import { binary, json, readJsonBody } from '../http/helpers';
 import { CA_LABEL_SEGMENT } from '../config/label';
 import { RevocationReason, canonicalSerial } from '../ca';
@@ -7,6 +7,7 @@ import type { CrlService, CrlStore } from '../crl';
 import { text, type HttpRequest, type HttpResponse } from '../http';
 import { errorFields, silentLogger, type Logger } from '../log';
 import { RepositoryError, type CaRepository } from '../repo';
+import { guard } from '../serving';
 
 /** The reasons a caller may give. `certificateHold` and `removeFromCRL` would make revocation undoable. */
 const REASONS: Record<string, RevocationReason> = {
@@ -63,7 +64,7 @@ export class RevocationServer {
     if (!route) {
       return undefined;
     }
-    try {
+    return guard({ protocol: 'revocation', logger: this.logger }, async () => {
       if (route.kind === 'crl') {
         return request.method === 'GET'
           ? await this.serveCrl(route.caLabel)
@@ -72,17 +73,7 @@ export class RevocationServer {
       return request.method === 'POST'
         ? await this.revoke(request, route.caLabel)
         : text(405, 'Use POST.', { allow: 'POST' });
-    } catch (error) {
-      const authFailure = authErrorResponse(error, this.logger);
-      if (authFailure) {
-        return authFailure;
-      }
-      this.logger.event('process_request', 'error', 'A request failed unexpectedly.', {
-        'aws_ca.protocol': 'revocation',
-        ...errorFields(error),
-      });
-      return text(500, 'Internal error.');
-    }
+    });
   }
 
   private async serveCrl(caLabel: string): Promise<HttpResponse> {

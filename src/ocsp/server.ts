@@ -4,11 +4,11 @@ import { CA_LABEL_SEGMENT } from '../config/label';
 import type { Signer } from '../ca';
 import type { ResolvedConfig } from '../config';
 import { text, type HttpRequest, type HttpResponse } from '../http';
-import { errorFields, silentLogger, type Logger } from '../log';
+import { silentLogger, type Logger } from '../log';
 import type { KeyStoreProvider } from '../keystore';
 import type { OperationalKeyService } from '../operational';
 import type { CaRecord, CaRepository } from '../repo';
-import { resolveCa } from '../serving';
+import { guard, resolveCa } from '../serving';
 import {
   OCSPResponseStatus,
   buildErrorResponse,
@@ -80,7 +80,8 @@ export class OcspServer {
     if (!this.deps.config.ocsp.enabled) {
       return text(404, 'OCSP is not enabled.');
     }
-    try {
+    const fail = (): HttpResponse => this.error(OCSPResponseStatus.internalError);
+    return guard({ protocol: 'ocsp', logger: this.logger, fail }, async () => {
       let der: Uint8Array | undefined;
       if (request.method === 'POST' && target.encoded === undefined) {
         const contentType = mediaType(request);
@@ -97,13 +98,7 @@ export class OcspServer {
         return this.error(OCSPResponseStatus.malformedRequest);
       }
       return await this.answer(target.caLabel, der, request.method === 'GET');
-    } catch (error) {
-      this.logger.event('process_request', 'error', 'An OCSP request failed unexpectedly.', {
-        'aws_ca.protocol': 'ocsp',
-        ...errorFields(error),
-      });
-      return this.error(OCSPResponseStatus.internalError);
-    }
+    });
   }
 
   private error(status: Exclude<OCSPResponseStatus, OCSPResponseStatus.successful>): HttpResponse {

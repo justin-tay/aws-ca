@@ -352,6 +352,20 @@ const check = (dir: string, name: string, response: HttpResponse | undefined, ex
   });
 });
 
+describe('an unexpected failure', () => {
+  it('is answered in OCSP’s own form, as internalError', async () => {
+    const h = await setup();
+    const alice = await h.enroll('alice');
+    const dir = await files(h, { alice });
+    const body = request(dir, 'alice', ['-no_nonce']);
+    jest.spyOn(h.repository, 'getCa').mockRejectedValue(new Error('table unavailable'));
+    const response = await h.post(body);
+    expect(response?.status).toBe(200);
+    // internalError (2): an unsigned response with only a status
+    expect(Buffer.from(bodyOf(response)).toString('hex')).toBe('30030a0102');
+  });
+});
+
 describe('OCSP signing with the CA key', () => {
   it('is signed by the issuing CA itself, with no delegated certificate', async () => {
     const h = await setup({

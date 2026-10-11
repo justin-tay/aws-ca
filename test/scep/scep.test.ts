@@ -41,7 +41,7 @@ import { bootstrapCas } from '../../src/bootstrap';
 import { resolveConfig, type AwsCaConfigInput } from '../../src/config';
 import { CertificateIssuer } from '../../src/issuance';
 import { OperationalKeyService } from '../../src/operational';
-import { InMemoryCaRepository } from '../../src/repo';
+import { InMemoryCaRepository, RepositoryError } from '../../src/repo';
 import type { AuthenticatedUser, Authenticator } from '../../src/auth';
 import {
   DynamicChallenges,
@@ -533,6 +533,29 @@ describe('SCEP enrollment with dynamic challenges', () => {
     expect(await page('/scep/second/certsrv/mscep_admin/')).toContain(await thumbprintOf('second'));
     // A CA that issues no client certificates has no challenges.
     expect((await ask('/scep/servers/certsrv/mscep_admin/'))?.status).toBe(404);
+  });
+
+  it('answers 429 with a retry hint when too many challenges are outstanding', async () => {
+    const harness = await setup({}, 'dynamic');
+    const challengeServer = new ScepChallengeServer({
+      config: harness.config,
+      repository: harness.repository,
+      authenticator: {
+        lookup: () => Promise.resolve(undefined),
+        authenticate: () => Promise.resolve({ username: 'mdm', groups: ['scep-admin'] }),
+      },
+      challenges: {
+        issue: () => Promise.reject(new RepositoryError('limit-reached', 'too many')),
+      },
+    });
+    const response = await challengeServer.handle({
+      method: 'GET',
+      path: '/scep/issuing/certsrv/mscep_admin/',
+      headers: auth('mdm'),
+      body: new Uint8Array(),
+    });
+    expect(response?.status).toBe(429);
+    expect(response?.headers['retry-after']).toBe('60');
   });
 
   it('answers 404 where dynamic challenges are not enabled', async () => {

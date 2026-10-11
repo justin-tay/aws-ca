@@ -114,6 +114,13 @@ describe('EST', () => {
     expect(subjects).toEqual(['CN=aws-ca issuing CA', new X509Certificate(root!.certificatePem).subject]);
   });
 
+  it('answers 500, not an exception, when the repository fails', async () => {
+    const { call, repository } = await setup();
+    jest.spyOn(repository, 'getCa').mockRejectedValue(new Error('table unavailable'));
+    const response = await call('GET', '/.well-known/est/issuing/cacerts');
+    expect(response).toMatchObject({ status: 500, body: 'Internal error.' });
+  });
+
   it('answers the shorter path and a missing CA label', async () => {
     const { call } = await setup();
     expect((await call('GET', '/est/issuing/cacerts')).status).toBe(200);

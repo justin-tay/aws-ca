@@ -9,7 +9,7 @@ import type { CertificateIssuer } from '../issuance';
 import { errorFields, silentLogger, type Logger } from '../log';
 import type { OperationalKeyService } from '../operational';
 import { PolicyError, decideScepIssuance } from '../policy';
-import { resolveCa } from '../serving';
+import { guard, resolveCa } from '../serving';
 import type { DynamicChallenges } from './dynamic';
 import type { CaRecord, CaRepository } from '../repo';
 import {
@@ -81,7 +81,7 @@ export class ScepServer {
     if (!this.deps.config.scep.enabled) {
       return text(404, 'SCEP is not enabled.');
     }
-    try {
+    return guard({ protocol: 'scep', logger: this.logger }, async () => {
       const ca = await resolveCa(this.deps, route.caLabel);
       if (!ca) {
         return text(404, 'There is no such CA.');
@@ -108,13 +108,7 @@ export class ScepServer {
         default:
           return text(400, 'Unsupported operation.');
       }
-    } catch (error) {
-      this.logger.event('process_request', 'error', 'A request failed unexpectedly.', {
-        'aws_ca.protocol': 'scep',
-        ...errorFields(error),
-      });
-      return text(500, 'Internal error.');
-    }
+    });
   }
 
   private messageOf(request: HttpRequest, query: URLSearchParams): Uint8Array | undefined {

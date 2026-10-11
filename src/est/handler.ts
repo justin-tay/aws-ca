@@ -1,13 +1,7 @@
 import { X509Certificate } from '@peculiar/x509';
 import { caChain } from '../ca/chain';
 import { BODY_LIMITS, mediaType } from '../http/helpers';
-import {
-  authErrorResponse,
-  authenticateRequest,
-  isResponse,
-  type AuthenticatedUser,
-  type Authenticator,
-} from '../auth';
+import { authenticateRequest, isResponse, type AuthenticatedUser, type Authenticator } from '../auth';
 import { CsrError, canonicalSerial, parseCsr } from '../ca';
 import type { ResolvedConfig } from '../config';
 import { CertificateIssuer } from '../issuance';
@@ -15,7 +9,7 @@ import { text, type HttpRequest, type HttpResponse } from '../http';
 import type { KeyStoreProvider } from '../keystore';
 import { errorFields, silentLogger, type Logger } from '../log';
 import { PolicyError, decideIssuance } from '../policy';
-import { resolveCa } from '../serving';
+import { guard, resolveCa } from '../serving';
 import type { CaRecord, CaRepository } from '../repo';
 import { certsOnlyBase64 } from './pkcs7';
 
@@ -93,7 +87,7 @@ export class EstServer {
     if (!route) {
       return text(404, 'Not found.');
     }
-    try {
+    return guard({ protocol: 'est', logger: this.logger }, async () => {
       const ca = await resolveCa(this.deps, route.caLabel);
       if (!ca) {
         return text(404, 'There is no such CA.');
@@ -106,17 +100,7 @@ export class EstServer {
       return request.method === 'POST'
         ? await this.enroll(request, ca, route.operation === 'simplereenroll')
         : text(405, 'Use POST.', { allow: 'POST' });
-    } catch (error) {
-      const authFailure = authErrorResponse(error, this.logger);
-      if (authFailure) {
-        return authFailure;
-      }
-      this.logger.event('process_request', 'error', 'A request failed unexpectedly.', {
-        'aws_ca.protocol': 'est',
-        ...errorFields(error),
-      });
-      return text(500, 'Internal error.');
-    }
+    });
   }
 
   /**

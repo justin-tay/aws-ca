@@ -3,12 +3,12 @@ import { CA_LABEL_SEGMENT } from '../config/label';
 import { json, readJsonBody } from '../http/helpers';
 import { commonNameProblem } from '../policy';
 import { X509Certificate } from '@peculiar/x509';
-import { authErrorResponse, authenticateRequest, isResponse, type Authenticator } from '../auth';
+import { authenticateRequest, isResponse, type Authenticator } from '../auth';
 import type { ResolvedConfig } from '../config';
 import { text, type HttpRequest, type HttpResponse } from '../http';
-import { errorFields, silentLogger, type Logger } from '../log';
+import { silentLogger, type Logger } from '../log';
 import { RepositoryError, type CaRecord, type CaRepository } from '../repo';
-import { resolveCa } from '../serving';
+import { guard, resolveCa } from '../serving';
 import type { DynamicChallenges } from './dynamic';
 
 export interface ScepChallengeDependencies {
@@ -95,7 +95,20 @@ export class ScepChallengeServer {
     if (request.method !== allowed) {
       return text(405, `Use ${allowed}.`, { allow: allowed });
     }
-    try {
+    const limitReached = (error: unknown): HttpResponse | undefined => {
+      if (!(error instanceof RepositoryError && error.code === 'limit-reached')) {
+        return undefined;
+      }
+      this.logger.event('issue_scep_challenge', 'denied', 'Too many SCEP challenges are outstanding.', {
+        'aws_ca.ca': route.caLabel,
+        'event.reason': 'limit_reached',
+      });
+      return text(429, 'Too many SCEP challenges are outstanding; wait for one to be used or to expire.', {
+        'retry-after': '60',
+        ...NO_STORE,
+      });
+    };
+    return guard({ protocol: 'scep', logger: this.logger, map: limitReached }, async () => {
       const ca = await resolveCa(this.deps, route.caLabel, { profile: 'client' });
       if (!ca) {
         return text(404, 'There is no such CA; name it in the path.');
@@ -116,27 +129,7 @@ export class ScepChallengeServer {
       return route.kind === 'page'
         ? await this.page(ca, user.username)
         : await this.json(request, caLabel, user.username);
-    } catch (error) {
-      const authFailure = authErrorResponse(error, this.logger);
-      if (authFailure) {
-        return authFailure;
-      }
-      if (error instanceof RepositoryError && error.code === 'limit-reached') {
-        this.logger.event('issue_scep_challenge', 'denied', 'Too many SCEP challenges are outstanding.', {
-          'aws_ca.ca': route.caLabel,
-          'event.reason': 'limit_reached',
-        });
-        return text(429, 'Too many SCEP challenges are outstanding; wait for one to be used or to expire.', {
-          'retry-after': '60',
-          ...NO_STORE,
-        });
-      }
-      this.logger.event('process_request', 'error', 'A request failed unexpectedly.', {
-        'aws_ca.protocol': 'scep',
-        ...errorFields(error),
-      });
-      return text(500, 'Internal error.');
-    }
+    });
   }
 
   private async page(ca: CaRecord, username: string): Promise<HttpResponse> {
