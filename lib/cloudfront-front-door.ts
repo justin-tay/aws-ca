@@ -18,6 +18,7 @@ import {
   OriginRequestPolicy,
   OriginRequestQueryStringBehavior,
   PriceClass,
+  ResponseHeadersPolicy,
   SecurityPolicyProtocol,
   ViewerProtocolPolicy,
   type BehaviorOptions,
@@ -151,23 +152,16 @@ export class CloudFrontFrontDoor {
           }
         : {}),
     };
-    // A Function URL renames WWW-Authenticate to x-amzn-Remapped-www-authenticate, so a browser
-    // would see a bare 401 and never prompt for the Basic credentials (the NDES challenge page).
-    const restoreAuthenticate = new CloudFrontFunction(scope, 'RestoreWwwAuthenticate', {
-      comment: 'Puts the WWW-Authenticate header back, which the Function URL renames',
-      code: FunctionCode.fromInline(
-        [
-          'function handler(event) {',
-          '  var headers = event.response.headers;',
-          "  var remapped = headers['x-amzn-remapped-www-authenticate'];",
-          '  if (remapped) {',
-          "    headers['www-authenticate'] = remapped;",
-          "    delete headers['x-amzn-remapped-www-authenticate'];",
-          '  }',
-          '  return event.response;',
-          '}',
-        ].join('\n'),
-      ),
+    // A Function URL renames the origin's WWW-Authenticate to x-amzn-Remapped-www-authenticate, so a
+    // browser would see a bare 401 and never prompt for Basic credentials (the NDES challenge page).
+    // An edge function cannot put it back: CloudFront does not run viewer response functions for
+    // origin status 400 and above. A response headers policy applies to every response, so it adds
+    // the header when the origin's was renamed (override false keeps one that is present).
+    const basicChallenge = new ResponseHeadersPolicy(scope, 'BasicChallenge', {
+      comment: 'WWW-Authenticate, which the Function URL renames',
+      customHeadersBehavior: {
+        customHeaders: [{ header: 'WWW-Authenticate', value: 'Basic realm="aws-ca"', override: false }],
+      },
     });
     const dynamicBehavior: BehaviorOptions = {
       origin,
@@ -175,7 +169,7 @@ export class CloudFrontFrontDoor {
       allowedMethods: AllowedMethods.ALLOW_ALL,
       cachePolicy: dynamicCache,
       originRequestPolicy: dynamicRequests,
-      functionAssociations: [{ function: restoreAuthenticate, eventType: FunctionEventType.VIEWER_RESPONSE }],
+      responseHeadersPolicy: basicChallenge,
     };
 
     if (!frontDoor.mtls) {
