@@ -10,7 +10,6 @@ import type {
   ScheduledEvent,
 } from 'aws-lambda';
 import { CognitoAuthenticator } from '../auth';
-import type { ResolvedConfig } from '../config';
 import { CrlService, S3CrlStore } from '../crl';
 import { EstServer } from '../est';
 import type { HttpRequest, HttpResponse } from '../http';
@@ -23,6 +22,7 @@ import { DynamicChallenges, ScepChallengeServer, ScepServer, SsmChallenge, scepC
 import { createLogger, errorFields, withLogContext, type Logger } from '../log';
 import { RevocationServer } from '../revocation';
 import { DynamoCaRepository, createDocumentClient } from '../repo';
+import { apiEnvironment, type ApiEnvironment } from './environment';
 
 /** An API Gateway REST API proxy event (payload format 1). */
 type RestEvent = APIGatewayProxyEvent;
@@ -37,7 +37,7 @@ const isRest = (event: ApiEvent): event is RestEvent => 'httpMethod' in event;
  * certificate of an API Gateway mTLS domain is read from the request context, which a caller cannot
  * set; it is used only when this deployment is configured with such a domain (`MTLS_APIGW`).
  */
-export function toRequest(event: ApiEvent): HttpRequest {
+export function toRequest(event: ApiEvent, options: { clientCertificateFromContext: boolean }): HttpRequest {
   const headers: Record<string, string> = {};
   for (const [name, value] of Object.entries(event.headers ?? {})) {
     if (value !== undefined && value !== null) {
@@ -46,7 +46,7 @@ export function toRequest(event: ApiEvent): HttpRequest {
   }
   const body = event.body ?? '';
   const bytes = event.isBase64Encoded ? Buffer.from(body, 'base64') : Buffer.from(body, 'utf8');
-  const useCertificate = process.env.MTLS_APIGW === '1';
+  const useCertificate = options.clientCertificateFromContext;
 
   if (isRest(event)) {
     const query = new URLSearchParams();
@@ -65,7 +65,7 @@ export function toRequest(event: ApiEvent): HttpRequest {
       query: query.toString(),
       headers,
       body: bytes,
-      baseUrl: process.env.PUBLIC_BASE_URL ?? `https://${domain}${stage}`,
+      baseUrl: `https://${domain}${stage}`,
       ...(certificate ? { viewerCertificatePem: certificate } : {}),
     };
   }
@@ -80,8 +80,9 @@ export function toRequest(event: ApiEvent): HttpRequest {
     query: event.rawQueryString,
     headers,
     body: bytes,
-    // The Lambda service sets the domain; a client cannot choose it. `PUBLIC_BASE_URL` wins when a front door has its own.
-    baseUrl: process.env.PUBLIC_BASE_URL ?? `https://${event.requestContext.domainName}`,
+    // The Lambda service sets the domain; a client cannot choose it. Behind a front door of its own,
+    // `admit` replaces this with the addresses that were published.
+    baseUrl: `https://${event.requestContext.domainName}`,
     ...(certificate ? { viewerCertificatePem: certificate } : {}),
   };
 }
@@ -110,42 +111,34 @@ interface Runtime {
   originSecret: OriginSecretSource;
   /** The front door passes the viewer's certificate in a header (CloudFront with mTLS). */
   trustViewerCertificateHeader: boolean;
+  /** API Gateway puts the client certificate in the request context. */
+  clientCertificateFromContext: boolean;
   logger: Logger;
   clientDetails: boolean;
 }
 
-function required(name: string): string {
-  const value = process.env[name];
-  if (value === undefined || value === '') {
-    throw new Error(`The environment variable ${name} is not set.`);
-  }
-  return value;
-}
-
-function createRuntime(): Runtime {
-  const config = JSON.parse(required('CONFIG')) as ResolvedConfig;
+function createRuntime(env: ApiEnvironment): Runtime {
+  const { config } = env;
   const ssm = new SSMClient({});
   const keyStores = new KeyStoreRegistry({
     ssm,
     secretsManager: new SecretsManagerClient({}),
     kms: new KMSClient({}),
-    namePrefix: required('NAME_PREFIX'),
-    ...(process.env.CUSTOMER_MANAGED_KEY_ARN
-      ? { customerManagedKeyArn: process.env.CUSTOMER_MANAGED_KEY_ARN }
-      : {}),
+    namePrefix: env.namePrefix,
+    ...(env.customerManagedKeyArn ? { customerManagedKeyArn: env.customerManagedKeyArn } : {}),
   });
   const repository = new DynamoCaRepository({
     client: createDocumentClient(),
-    tableName: required('TABLE_NAME'),
+    tableName: env.tableName,
     retentionAfterExpiryDays: config.retention.afterExpiryDays,
   });
   const authenticator = new CognitoAuthenticator({
     client: new CognitoIdentityProviderClient({}),
-    clientId: required('USER_POOL_CLIENT_ID'),
-    userPoolId: required('USER_POOL_ID'),
+    clientId: env.userPoolClientId,
+    userPoolId: env.userPoolId,
   });
   const logger = createLogger();
-  const store = new S3CrlStore({ client: new S3Client({}), bucket: required('CRL_BUCKET') });
+  const store = new S3CrlStore({ client: new S3Client({}), bucket: env.crlBucket });
   const crl = new CrlService({ config, repository, keyStores, store, logger });
   const server = new EstServer({ config, repository, keyStores, authenticator, logger });
   const revocation = new RevocationServer({ config, repository, authenticator, crl, store, logger });
@@ -175,7 +168,6 @@ function createRuntime(): Runtime {
     logger,
   });
 
-  const parameter = process.env.ORIGIN_VERIFY_PARAMETER;
   return {
     server,
     revocation,
@@ -185,13 +177,14 @@ function createRuntime(): Runtime {
     crl,
     logger,
     clientDetails: config.logging.clientDetails,
-    ...(process.env.PUBLIC_URLS_PARAMETER
-      ? { publicUrls: new SsmPublicUrls(ssm, process.env.PUBLIC_URLS_PARAMETER) }
-      : {}),
+    ...(env.publicUrlsParameter ? { publicUrls: new SsmPublicUrls(ssm, env.publicUrlsParameter) } : {}),
     issuingLabels: config.subordinateCas.map((ca) => ca.label),
-    originSecret: parameter === undefined ? noOriginSecret : new SsmOriginSecret(ssm, parameter),
+    originSecret: env.originVerifyParameter
+      ? new SsmOriginSecret(ssm, env.originVerifyParameter)
+      : noOriginSecret,
     // The header is the front door's word, which is only worth anything once the origin secret has passed.
-    trustViewerCertificateHeader: process.env.MTLS_VIEWER_CERT === '1',
+    trustViewerCertificateHeader: env.trustViewerCertificateHeader,
+    clientCertificateFromContext: env.clientCertificateFromContext,
   };
 }
 
@@ -202,7 +195,7 @@ const isScheduled = (event: ApiEvent | ScheduledEvent): event is ScheduledEvent 
 export const handler = async (
   event: ApiEvent | ScheduledEvent,
 ): Promise<APIGatewayProxyStructuredResultV2 | undefined> => {
-  runtime ??= createRuntime();
+  runtime ??= createRuntime(apiEnvironment());
   if (isScheduled(event)) {
     // The daily refresh: a CRL must never run out unnoticed.
     const summary = await runtime.crl.refreshAll(runtime.issuingLabels);
@@ -226,7 +219,9 @@ async function serve(
   event: ApiEvent,
 ): Promise<APIGatewayProxyStructuredResultV2 | undefined> {
   const started = process.hrtime.bigint();
-  const request = toRequest(event);
+  const request = toRequest(event, {
+    clientCertificateFromContext: current.clientCertificateFromContext,
+  });
   const rest = isRest(event);
   const requestId = event.requestContext.requestId;
   const sourceIp = rest

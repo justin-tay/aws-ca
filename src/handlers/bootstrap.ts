@@ -27,6 +27,7 @@ import {
 import { ensureScepChallenge, scepChallengeName } from '../scep';
 import { KeyStoreError, KeyStoreRegistry, createEncryptionSecret, encryptionSecretName } from '../keystore';
 import { DynamoCaRepository, createDocumentClient } from '../repo';
+import { maintenanceEnvironment, type MaintenanceEnvironment } from './environment';
 
 /** The `Provider` framework's contract: a stable physical id and optional attributes. */
 export interface BootstrapResponse {
@@ -123,30 +124,26 @@ async function publishPublicUrls(event: CloudFormationCustomResourceEvent): Prom
 const isScheduled = (event: CloudFormationCustomResourceEvent | ScheduledEvent): event is ScheduledEvent =>
   'detail-type' in event;
 
-let scheduledConfig: ResolvedConfig | undefined;
+let scheduledEnvironment: MaintenanceEnvironment | undefined;
 
 /**
  * The daily maintenance: rotate the operational keys (only this function may create keys) and
  * refresh the root CA's CRL (the root key is not available to the API function). It reads what it needs from its own environment.
  */
 async function scheduledMaintenance(): Promise<void> {
-  scheduledConfig ??= JSON.parse(process.env.CONFIG ?? '{}') as ResolvedConfig;
-  const repository = new DynamoCaRepository({
-    client: createDocumentClient(),
-    tableName: process.env.TABLE_NAME ?? '',
-  });
+  scheduledEnvironment ??= maintenanceEnvironment();
+  const { config, tableName, crlBucket, customerManagedKeyArn } = scheduledEnvironment;
+  const repository = new DynamoCaRepository({ client: createDocumentClient(), tableName });
   const keyStores = new KeyStoreRegistry({
     ssm: new SSMClient({}),
     secretsManager: new SecretsManagerClient({}),
     kms: new KMSClient({}),
-    namePrefix: scheduledConfig.namePrefix,
-    ...(process.env.CUSTOMER_MANAGED_KEY_ARN
-      ? { customerManagedKeyArn: process.env.CUSTOMER_MANAGED_KEY_ARN }
-      : {}),
+    namePrefix: config.namePrefix,
+    ...(customerManagedKeyArn ? { customerManagedKeyArn } : {}),
   });
   // Rotation first: the CRL run below is the one that fails the schedule loudly.
   const outcomes = await new OperationalKeyService({
-    config: scheduledConfig,
+    config,
     repository,
     keyStores,
     logger,
@@ -155,13 +152,13 @@ async function scheduledMaintenance(): Promise<void> {
     'aws_ca.operational_key.count': outcomes.length,
   });
   const crl = new CrlService({
-    config: scheduledConfig,
+    config,
     repository,
     keyStores,
-    store: new S3CrlStore({ client: new S3Client({}), bucket: process.env.CRL_BUCKET ?? '' }),
+    store: new S3CrlStore({ client: new S3Client({}), bucket: crlBucket }),
     logger,
   });
-  const summary = await crl.refreshAll(maintainedCrlLabels(scheduledConfig, ['root']));
+  const summary = await crl.refreshAll(maintainedCrlLabels(config, ['root']));
   if (summary.failed.length > 0) {
     throw new Error(`The root CRL could not be refreshed: ${summary.failed[0].message}`);
   }

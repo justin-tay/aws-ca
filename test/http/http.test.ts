@@ -1,5 +1,5 @@
 import type { APIGatewayProxyEventV2 } from 'aws-lambda';
-import { toRequest, toResult } from '../../src/handlers/api';
+import { toRequest as toRequestWith, toResult } from '../../src/handlers/api';
 import { originIsVerified, text } from '../../src/http';
 
 describe('originIsVerified', () => {
@@ -14,6 +14,11 @@ describe('originIsVerified', () => {
     expect(originIsVerified({}, 'secret')).toBe(false);
   });
 });
+
+const toRequest = (
+  event: Parameters<typeof toRequestWith>[0],
+  clientCertificateFromContext = false,
+): ReturnType<typeof toRequestWith> => toRequestWith(event, { clientCertificateFromContext });
 
 const event = (overrides: Partial<APIGatewayProxyEventV2>): APIGatewayProxyEventV2 =>
   ({
@@ -62,11 +67,6 @@ const rest = (overrides: Record<string, unknown> = {}): never =>
   }) as never;
 
 describe('API Gateway events', () => {
-  afterEach(() => {
-    delete process.env.MTLS_APIGW;
-    delete process.env.PUBLIC_BASE_URL;
-  });
-
   it('reads a REST API (v1) event, including the stage in the default address', () => {
     const request = toRequest(rest());
     expect(request.method).toBe('POST');
@@ -93,8 +93,7 @@ describe('API Gateway events', () => {
       },
     });
     expect(toRequest(restEvent).viewerCertificatePem).toBeUndefined();
-    process.env.MTLS_APIGW = '1';
-    expect(toRequest(restEvent).viewerCertificatePem).toBe('PEM');
+    expect(toRequest(restEvent, true).viewerCertificatePem).toBe('PEM');
   });
 
   it('does the same for an HTTP API (v2) event', () => {
@@ -111,13 +110,11 @@ describe('API Gateway events', () => {
       },
     } as never;
     expect(toRequest(httpEvent).viewerCertificatePem).toBeUndefined();
-    process.env.MTLS_APIGW = '1';
-    expect(toRequest(httpEvent).viewerCertificatePem).toBe('PEM-V2');
+    expect(toRequest(httpEvent, true).viewerCertificatePem).toBe('PEM-V2');
   });
 
   it('ignores a certificate header a client sends itself', () => {
-    process.env.MTLS_APIGW = '1';
-    const request = toRequest(rest({ headers: { 'CloudFront-Viewer-Cert-Pem': 'FORGED' } }));
+    const request = toRequest(rest({ headers: { 'CloudFront-Viewer-Cert-Pem': 'FORGED' } }), true);
     expect(request.viewerCertificatePem).toBeUndefined();
   });
 });
